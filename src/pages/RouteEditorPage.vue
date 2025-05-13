@@ -1,4 +1,3 @@
-<!-- src/pages/RouteEditorPage.vue (modificado) -->
 <template>
   <div class="route-editor-container">
     <div class="row q-col-gutter-md">
@@ -25,12 +24,35 @@
 
       <div class="col-12 col-md-9">
         <q-card style="height: 80vh">
-          <create-route-actions
-            @add-point="openAddPointModal"
-            @trace-route="traceRoute"
-            @undo="undoLastAction"
-            :disable-trace-route="routePoints.length < 2"
-          />
+          <create-route-actions>
+            <template v-slot:left-actions>
+              <add-point-action
+                :route-points="routePoints"
+                :points-service="pointsService"
+                @update-map="refreshMap"
+              />
+            </template>
+
+            <template v-slot:right-actions>
+              <trace-route-action
+                :route-points="routePoints"
+                :route-service="routeService"
+                @update-map="handleRouteUpdated"
+              />
+
+              <undo-action
+                :history-service="historyService"
+                @update-map="refreshMap"
+              />
+
+              <save-route-action
+                :route-points="routePoints"
+                :route-info="initialRouteData"
+                :route-service="routeService"
+                @update-map="refreshMap"
+              />
+            </template>
+          </create-route-actions>
 
           <q-card-section class="map-container" style="height: calc(100% - 50px); padding: 0;">
             <map-view
@@ -44,12 +66,6 @@
         </q-card>
       </div>
     </div>
-    <add-point-modal
-      v-model="showAddPointModal"
-      @cancel="handleModalCancel"
-      @point-added="addPoint"
-      ref="addPointModal"
-    />
   </div>
 </template>
 
@@ -57,26 +73,32 @@
 import { Notify } from 'quasar';
 import MapView from 'components/maps/MapView.vue';
 import PontoParadaList from "components/lists/PontoParadaList.vue";
-import AddPointModal from "components/modal/AddPointModal.vue";
 import CreateRouteActions from "components/maps/create_routes/CreateRoutesActions.vue";
+
+// Importando componentes de ação autocontidos
+import AddPointAction from "components/maps/create_routes/actions/AddPointAction.vue";
+import TraceRouteAction from "components/maps/create_routes/actions/TraceRouteAction.vue";
+import UndoAction from "components/maps/create_routes/actions/UndoAction.vue";
+import SaveRouteAction from "components/maps/create_routes/actions/SaveRouteAction.vue";
 
 export default {
   name: 'RouteEditorPage',
 
   components: {
     CreateRouteActions,
-    AddPointModal,
     PontoParadaList,
-    MapView
+    MapView,
+    AddPointAction,
+    TraceRouteAction,
+    UndoAction,
+    SaveRouteAction
   },
 
   props: {
-    // Adicionamos esta prop para receber os dados iniciais do wizard
     initialRouteData: {
       type: Object,
       default: () => ({})
     },
-    // Poderíamos também ter uma prop para pontos iniciais se necessário
     initialPoints: {
       type: Array,
       default: () => []
@@ -89,7 +111,19 @@ export default {
     return {
       routePoints: [],
       selectedPoint: null,
-      showAddPointModal: false,
+
+      // Serviços para as ações (podem ser injetados ou vindos de APIs externas)
+      pointsService: {
+        addPoint: this.addPointService,
+        removePoint: this.removePointService
+      },
+      routeService: {
+        calculateRoute: this.calculateRouteService,
+        saveRoute: this.saveRouteService
+      },
+      historyService: {
+        undo: this.undoService
+      }
     }
   },
 
@@ -98,35 +132,82 @@ export default {
     if (this.initialPoints && this.initialPoints.length > 0) {
       this.routePoints = [...this.initialPoints];
     }
-
-    console.log("RouteEditorPage montado, métodos disponíveis:", Object.keys(this));
-    console.log("handleMapClick existe?", typeof this.handleMapClick === 'function');
-    console.log("Referências disponíveis:", Object.keys(this.$refs));
   },
 
   methods: {
-    // Método público para obter os pontos da rota
-    getRoutePoints() {
-      return this.routePoints;
+    // Implementações dos serviços para as ações
+
+    // Serviço para adicionar ponto
+    async addPointService(point) {
+      // Aplicar lógica de adicionar ponto
+      const newId = Math.max(0, ...this.routePoints.map(p => p.id || 0)) + 1;
+      const newPoint = { ...point, id: newId };
+      this.routePoints.push(newPoint);
+      return newPoint;
     },
 
-    handleRouteUpdated(routeData) {
-      console.log('Rota atualizada:', routeData);
+    // Serviço para remover ponto
+    async removePointService(pointId) {
+      const index = this.routePoints.findIndex(p => p.id === pointId);
+      if (index !== -1) {
+        this.routePoints.splice(index, 1);
+        return true;
+      }
+      return false;
+    },
 
-      if (routeData.routes && routeData.routes.length > 0) {
-        const route = routeData.routes[0];
-        const distanceKm = (route.totalDistance / 1000).toFixed(2);
-        const durationMin = Math.round(route.totalTime / 60);
+    // Serviço para calcular rota
+    async calculateRouteService(points) {
+      // Esta função seria substituída por uma chamada real à API
+      if (this.$refs.mapView) {
+        return this.$refs.mapView.calculateRoute();
+      }
+      return { routes: [] };
+    },
 
-        Notify.create({
-          type: 'positive',
-          message: `Rota traçada: ${distanceKm}km, ${durationMin} min`,
-          position: 'top'
-        });
+    // Serviço para salvar rota
+    async saveRouteService(points, info) {
+      // Esta função seria substituída por uma chamada real à API
+      console.log('Salvando rota com pontos:', points, 'e info:', info);
+      return { id: Date.now() };
+    },
+
+    // Serviço para desfazer ação
+    async undoService() {
+      console.log('Desfazendo última ação...');
+      return true;
+    },
+
+    // Métodos para gerenciar o mapa
+
+    // Atualizar o mapa quando uma ação é concluída
+    refreshMap() {
+      if (this.$refs.mapView) {
+        this.$refs.mapView.refreshMap();
       }
     },
 
-    // Formata as informações de programação
+    // Lidar com clique no mapa (passa para o componente de ação AddPoint)
+    handleMapClick(coords) {
+      // Buscar o componente AddPointAction
+      const addPointActions = this.$children.filter(child => child.$options.name === 'AddPointAction');
+
+      if (addPointActions.length > 0) {
+        // Se encontrar, chamar o método para abrir o modal com as coordenadas
+        const addPointAction = addPointActions[0];
+        if (typeof addPointAction.openModal === 'function') {
+          addPointAction.openModal(coords);
+        }
+      }
+    },
+
+    // Manipular atualização de rota
+    handleRouteUpdated(routeData) {
+      console.log('Rota atualizada:', routeData);
+      this.refreshMap();
+    },
+
+    // Métodos existentes
     formatSchedule() {
       if (!this.initialRouteData) return '';
 
@@ -134,7 +215,6 @@ export default {
       return `${days}, ${this.initialRouteData.startTime} - ${this.initialRouteData.endTime}, ${this.initialRouteData.frequency}`;
     },
 
-    // Formata os dias da semana
     getDaysString() {
       if (!this.initialRouteData || !this.initialRouteData.days) return '';
 
@@ -165,83 +245,11 @@ export default {
       return activeDays.join(', ');
     },
 
-    handleMapClick(coords) {
-      console.log("MÉTODO handleMapClick CHAMADO COM:", coords);
-
-      // Use a referência direta ao modal
-      if (this.$refs.addPointModal) {
-        console.log("Referência ao modal encontrada, chamando método open");
-        // Verifique se o método open existe
-        if (typeof this.$refs.addPointModal.open === 'function') {
-          this.$refs.addPointModal.open({ coords });
-          this.showAddPointModal = true;
-        } else {
-          console.error("Método open não encontrado no modal!");
-          console.log("Métodos disponíveis:", Object.keys(this.$refs.addPointModal));
-
-          // Alternativa: definir coordenadas e abrir modal manualmente
-          this.newPointCoords = coords;
-          this.showAddPointModal = true;
-        }
-      } else {
-        console.error("Referência ao modal não encontrada!");
-        // Alternativa sem usar a referência
-        this.newPointCoords = coords;
-        this.showAddPointModal = true;
-      }
-    },
-
-    openAddPointModal() {
-      if (this.$refs.addPointModal && typeof this.$refs.addPointModal.open === 'function') {
-        this.$refs.addPointModal.open();
-      }
-      this.showAddPointModal = true;
-    },
-
-    handleModalCancel() {
-      this.showAddPointModal = false;
-    },
-
-    traceRoute() {
-      if (this.$refs.mapView) {
-        this.$refs.mapView.calculateRoute();
-      } else {
-        console.error("Referência ao MapView não encontrada!");
-      }
-    },
-
-    undoLastAction() {
-      console.log('Desfazendo última ação...');
-    },
-
     selectPoint(point) {
       this.selectedPoint = point;
       if (this.$refs.mapView) {
         this.$refs.mapView.centerOnPoint(point);
       }
-    },
-
-    addPoint(point) {
-      // Gerar ID único para o novo ponto
-      const newId = Math.max(0, ...this.routePoints.map(p => p.id || 0)) + 1;
-
-      const newPoint = {
-        ...point,
-        id: newId
-      };
-
-      // Adicionar à lista de pontos
-      this.routePoints.push(newPoint);
-
-      // Notificar usuário
-      Notify.create({
-        type: 'positive',
-        message: `Ponto "${newPoint.name}" adicionado com sucesso!`,
-        position: 'top'
-      });
-
-      // Fechar modal
-      this.showAddPointModal = false;
     },
 
     editPoint(point) {
@@ -259,6 +267,8 @@ export default {
           message: `Ponto "${point.name}" removido com sucesso!`,
           position: 'top'
         });
+
+        this.refreshMap();
       }
     },
 
@@ -267,6 +277,7 @@ export default {
         const temp = this.routePoints[index];
         this.routePoints[index] = this.routePoints[index - 1];
         this.routePoints[index - 1] = temp;
+        this.refreshMap();
       }
     },
 
@@ -275,6 +286,7 @@ export default {
         const temp = this.routePoints[index];
         this.routePoints[index] = this.routePoints[index + 1];
         this.routePoints[index + 1] = temp;
+        this.refreshMap();
       }
     }
   }
