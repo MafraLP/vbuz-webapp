@@ -1,4 +1,3 @@
-<!-- components/lists/PontoParadaList.vue -->
 <template>
   <div>
     <q-card-section>
@@ -6,13 +5,15 @@
       <q-list separator>
         <q-item
           v-for="(point, index) in routePoints"
-          :key="index"
+          :key="`point-${point.id || index}-${point.lat}-${point.lng}`"
           clickable
           @click="$emit('point-selected', point)"
         >
           <q-item-section>
             <q-item-label>{{ point.name }}</q-item-label>
-            <q-item-label caption>{{ formatCoords(point.lat, point.lng) }}</q-item-label>
+            <q-item-label caption>
+              {{ formatCoords(point.lat || point.latitude, point.lng || point.longitude) }}
+            </q-item-label>
           </q-item-section>
           <q-item-section side>
             <q-btn flat round dense icon="more_vert">
@@ -56,7 +57,17 @@ export default {
 
   methods: {
     formatCoords(lat, lng) {
-      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      if (!lat || !lng) return 'Coordenadas não definidas';
+      return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+    }
+  },
+
+  watch: {
+    routePoints: {
+      handler(newPoints) {
+        console.log('PontoParadaList - pontos atualizados:', newPoints);
+      },
+      deep: true
     }
   }
 }

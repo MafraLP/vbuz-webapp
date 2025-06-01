@@ -564,7 +564,7 @@ export default {
 
 <style lang="scss" scoped>
 .map-card {
-  height: 70vh;
+  height: 100%;
 }
 
 .map-container {

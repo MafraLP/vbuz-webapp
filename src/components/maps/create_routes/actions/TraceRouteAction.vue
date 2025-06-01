@@ -15,7 +15,7 @@ import { Notify } from 'quasar';
 
 export default {
   name: "TraceRouteAction",
-
+  emits: ['trace-route-direct'],
   props: {
     // Recebe os pontos da rota
     routePoints: {
@@ -47,23 +47,8 @@ export default {
       this.isTracing = true;
 
       try {
-        // Calcular rota usando o serviço (passado como prop ou usando o padrão)
-        const result = await this.routeService.calculateRoute(this.routePoints);
+        this.$emit('trace-route-direct');
 
-        if (result.routes && result.routes.length > 0) {
-          const route = result.routes[0];
-          const distanceKm = (route.totalDistance / 1000).toFixed(2);
-          const durationMin = Math.round(route.totalTime / 60);
-
-          Notify.create({
-            type: 'positive',
-            message: `Rota traçada: ${distanceKm}km, ${durationMin} min`,
-            position: 'top'
-          });
-        }
-
-        // Emite evento para atualizar o mapa
-        this.$emit('update-map', result);
       } catch (error) {
         Notify.create({
           type: 'negative',
@@ -73,7 +58,6 @@ export default {
       } finally {
         this.isTracing = false;
       }
-    }
-  }
+    }  }
 }
 </script>

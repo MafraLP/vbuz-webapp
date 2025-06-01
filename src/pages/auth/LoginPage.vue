@@ -46,7 +46,7 @@
                     type="submit"
                     color="primary"
                     class="full-width"
-                    :loading="loading"
+                    :loading="isSubmitting"
                 />
               </div>
             </q-form>
@@ -72,10 +72,19 @@
 </template>
 
 <script>
-import { useAuthStore } from 'src/stores/auth'
+import { useAuth } from 'src/composables/useAuth'
 
 export default {
   name: 'LoginPage',
+
+  setup() {
+    const { login, isLoading } = useAuth()
+
+    return {
+      authLogin: login,
+      authLoading: isLoading
+    }
+  },
 
   data() {
     return {
@@ -86,36 +95,26 @@ export default {
     }
   },
 
-  methods: {
+  computed: {
+    // Combinar loading local com loading do auth
+    isSubmitting() {
+      return this.loading || this.authLoading
+    }
+  },
 
+  methods: {
     async onSubmit() {
-      if(this.email ==='test@gmail.com' && this.password === '123456') {
-        this.$router.push('/dashboard')
-      } else {
-        this.$q.notify({
-          color: 'negative',
-          position: 'top',
-          message: 'E-mail ou senha inválidos',
-          icon: 'report_problem'
-        })
-      }
       this.loading = true
 
       try {
-        const authStore = useAuthStore()
-        await authStore.login({
+        await this.authLogin({
           email: this.email,
           password: this.password
         })
-
-        this.$router.push('/dashboard')
+        // O redirecionamento já é feito automaticamente pelo composable
       } catch (error) {
-        this.$q.notify({
-          color: 'negative',
-          position: 'top',
-          message: error.response?.data?.message || 'Erro ao fazer login',
-          icon: 'report_problem'
-        })
+        // As notificações também já são tratadas pelo composable
+        console.error('Erro no login:', error)
       } finally {
         this.loading = false
       }

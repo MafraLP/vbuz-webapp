@@ -1,121 +1,94 @@
 <template>
-  <q-btn
-    flat
-    icon="add_location"
-    color="primary"
-    label="Adicionar ponto"
-    @click="openModal"
-  />
+  <div>
+    <q-btn
+      flat
+      icon="add_location"
+      color="primary"
+      label="Adicionar ponto"
+      @click="openModal()"
+    />
 
-  <!-- Modal integrado no componente -->
-  <q-dialog v-model="showModal" persistent>
-    <q-card style="min-width: 350px; max-width: 90vw;">
-      <q-card-section>
-        <div class="text-h6">Adicionar Ponto de Parada</div>
-      </q-card-section>
+    <!-- Modal para adicionar ponto -->
+    <q-dialog v-model="showModal" persistent>
+      <q-card style="min-width: 350px">
+        <q-card-section>
+          <div class="text-h6">Adicionar Ponto de Parada</div>
+        </q-card-section>
 
-      <q-separator />
+        <q-separator />
 
-      <q-tabs
-        v-model="activeTab"
-        dense
-        class="text-grey"
-        active-color="primary"
-        indicator-color="primary"
-        align="justify"
-      >
-        <q-tab name="coordinates" label="Coordenadas" icon="location_on" />
-        <q-tab name="search" label="Buscar Endereço" icon="search" />
-      </q-tabs>
+        <q-card-section>
+          <q-input
+            v-model="newPoint.name"
+            label="Nome do ponto"
+            autofocus
+            :rules="[val => !!val || 'Nome é obrigatório']"
+          />
 
-      <q-separator />
-
-      <q-tab-panels v-model="activeTab" animated>
-        <q-tab-panel name="coordinates">
-          <q-input v-model="newPoint.name" label="Nome do ponto" class="q-mb-md" />
-          <div class="row q-col-gutter-md">
+          <div class="row q-col-gutter-md q-mt-md">
             <div class="col-6">
-              <q-input v-model.number="newPoint.lat" label="Latitude" type="number" />
+              <q-input
+                v-model.number="newPoint.lat"
+                label="Latitude"
+                type="number"
+                readonly
+                :disable="coordinatesLocked"
+              />
             </div>
             <div class="col-6">
-              <q-input v-model.number="newPoint.lng" label="Longitude" type="number" />
+              <q-input
+                v-model.number="newPoint.lng"
+                label="Longitude"
+                type="number"
+                readonly
+                :disable="coordinatesLocked"
+              />
             </div>
           </div>
+
           <q-select
             v-model="newPoint.type"
             :options="pointTypes"
             label="Tipo de ponto"
             class="q-mt-md"
           />
-        </q-tab-panel>
+        </q-card-section>
 
-        <q-tab-panel name="search">
-          <q-input
-            v-model="searchAddress"
-            label="Buscar endereço ou local"
-            class="q-mb-md"
-            @keyup.enter="searchLocation"
-          >
-            <template v-slot:append>
-              <q-btn round dense flat icon="search" @click="searchLocation" />
-            </template>
-          </q-input>
-
-          <div v-if="searchResults.length > 0" class="q-mb-md">
-            <q-list bordered separator>
-              <q-item
-                v-for="(result, index) in searchResults"
-                :key="index"
-                clickable
-                @click="selectSearchResult(result)"
-              >
-                <q-item-section>
-                  <q-item-label>{{ result.name }}</q-item-label>
-                  <q-item-label caption>{{ result.address }}</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
+        <!-- Visualização do mapa do ponto -->
+        <q-card-section v-if="isValidPoint" class="q-pt-none">
+          <div class="text-subtitle2 q-mb-sm">Localização do ponto</div>
+          <div class="point-preview-map" style="height: 200px; border-radius: 8px; overflow: hidden;">
+            <iframe
+              :src="`https://www.openstreetmap.org/export/embed.html?bbox=${newPoint.lng-0.005},${newPoint.lat-0.005},${newPoint.lng+0.005},${newPoint.lat+0.005}&marker=${newPoint.lat},${newPoint.lng}`"
+              style="width:100%; height:100%; border:none;"
+            ></iframe>
           </div>
+        </q-card-section>
 
-          <div v-if="searchError" class="text-negative q-mb-sm">
-            {{ searchError }}
-          </div>
-
-          <div v-if="selectedLocation" class="q-mt-md">
-            <q-input v-model="newPoint.name" label="Nome do ponto" />
-            <q-select
-              v-model="newPoint.type"
-              :options="pointTypes"
-              label="Tipo de ponto"
-              class="q-mt-md"
-            />
-          </div>
-        </q-tab-panel>
-      </q-tab-panels>
-
-      <q-card-actions align="right">
-        <q-btn flat label="Cancelar" color="grey" v-close-popup />
-        <q-btn flat label="Adicionar" color="primary" @click="addPoint" :disable="!isValidPoint" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancelar" color="grey" v-close-popup @click="closeModal" />
+          <q-btn flat label="Adicionar" color="primary" @click="addPoint" :disable="!isValidPoint" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+  </div>
 </template>
 
 <script>
+import { defineComponent } from 'vue';
 import { Notify } from 'quasar';
-import GeocodingService from 'src/services/GeocodingService';
 
-export default {
+export default defineComponent({
   name: "AddPointAction",
 
+  emits: ['update-map'],
+
   props: {
-    // Recebe a lista de pontos existentes para adicionar um novo
     routePoints: {
       type: Array,
       default: () => []
     },
 
-    // Recebe o serviço de pontos (ou implementação padrão)
     pointsService: {
       type: Object,
       default: () => ({
@@ -127,11 +100,7 @@ export default {
   data() {
     return {
       showModal: false,
-      activeTab: 'coordinates',
-      searchAddress: '',
-      searchResults: [],
-      searchError: '',
-      selectedLocation: null,
+      coordinatesLocked: false,
       newPoint: {
         name: '',
         lat: 0,
@@ -160,9 +129,32 @@ export default {
   },
 
   methods: {
-    openModal() {
+    openModal(coords = null) {
+      console.log('openModal chamado com coordenadas:', coords);
+
+      // Resetar o formulário
       this.resetForm();
+
+      // Se recebeu coordenadas do clique no mapa, preencher e bloquear
+      if (coords && coords.lat && coords.lng) {
+        console.log('Definindo coordenadas:', coords.lat, coords.lng);
+        this.newPoint = {
+          ...this.newPoint,
+          lat: coords.lat,
+          lng: coords.lng,
+          name: `Ponto ${this.routePoints.length + 1}`
+        };
+        this.coordinatesLocked = true; // Bloqueia a edição das coordenadas
+      } else {
+        this.coordinatesLocked = false;
+      }
+
       this.showModal = true;
+    },
+
+    closeModal() {
+      this.showModal = false;
+      this.resetForm();
     },
 
     resetForm() {
@@ -172,42 +164,7 @@ export default {
         lng: 0,
         type: 'stop'
       };
-      this.searchAddress = '';
-      this.searchResults = [];
-      this.searchError = '';
-      this.selectedLocation = null;
-      this.activeTab = 'coordinates';
-    },
-
-    async searchLocation() {
-      if (!this.searchAddress.trim()) {
-        this.searchError = 'Digite um endereço para buscar';
-        return;
-      }
-
-      this.searchError = '';
-
-      try {
-        const results = await GeocodingService.searchAddress(this.searchAddress);
-
-        if (results.length === 0) {
-          this.searchError = 'Nenhum resultado encontrado para este endereço';
-          this.searchResults = [];
-          return;
-        }
-
-        this.searchResults = results;
-      } catch (error) {
-        console.error('Erro na busca:', error);
-        this.searchError = 'Erro ao buscar endereço. Tente novamente.';
-      }
-    },
-
-    selectSearchResult(result) {
-      this.selectedLocation = result;
-      this.newPoint.name = result.name;
-      this.newPoint.lat = result.lat;
-      this.newPoint.lng = result.lng;
+      this.coordinatesLocked = false;
     },
 
     async addPoint() {
@@ -226,7 +183,9 @@ export default {
           type: this.newPoint.type
         };
 
-        // Salvar o ponto usando o serviço (pode ser passado como prop ou usar o padrão)
+        console.log('Adicionando ponto:', point);
+
+        // Salvar o ponto usando o serviço
         await this.pointsService.addPoint(point);
 
         // Notificar usuário
@@ -236,19 +195,26 @@ export default {
           position: 'top'
         });
 
-        // Emite evento para recarregar o mapa
-        this.$emit('update-map');
+        // Emite evento para atualizar o mapa
+        this.$emit('update-map', point);
 
         // Fecha o modal
         this.showModal = false;
+        this.resetForm();
       } catch (error) {
         Notify.create({
           type: 'negative',
-          message: `Erro ao adicionar ponto: ${error.message}`,
+          message: `Erro ao adicionar ponto: ${error.message || 'Erro desconhecido'}`,
           position: 'top'
         });
       }
     }
   }
-}
+});
 </script>
+
+<style scoped>
+.point-preview-map {
+  border: 1px solid #ddd;
+}
+</style>

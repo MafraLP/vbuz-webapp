@@ -46,7 +46,7 @@
         </q-item>
 
         <q-item
-          to="/map"
+          to="/route-wizard"
           exact
           clickable
           v-ripple
