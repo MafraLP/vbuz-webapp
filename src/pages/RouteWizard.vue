@@ -76,7 +76,7 @@
 <script>
 import { Notify } from 'quasar';
 import RouteInfoForm from 'components/maps/create_routes/RouteInfoForm.vue';
-import RouteEditorPage from 'src/pages/RouteEditorPage.vue';
+import RouteEditorPage from 'pages/routes/RouteEditorPage.vue';
 
 export default {
   name: 'RouteWizard',

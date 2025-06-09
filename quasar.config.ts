@@ -17,12 +17,13 @@ export default defineConfig((ctx) => {
       'i18n',
       'axios',
       'modal',
-      'auth'
+      'auth',
+      'theme'
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#css
     css: [
-      'app.scss'
+      'app.scss',
     ],
 
     // https://github.com/quasarframework/quasar/tree/dev/extras
@@ -113,21 +114,30 @@ export default defineConfig((ctx) => {
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
     framework: {
-      config: {},
+      config: {
+        dark: 'auto', // ou true/false
+        brand: {
+          // Cores principais que serão aplicadas
+          primary: '#ff6300',
+          secondary: '#ffa100',
+          accent: '#f27c34',
 
-      // iconSet: 'material-icons', // Quasar icon set
-      // lang: 'en-US', // Quasar language pack
+          dark: '#0c0f0a',
+          'dark-page': '#0c0f0a',
 
-      // For special cases outside of where the auto-import strategy can have an impact
-      // (like functional components as one of the examples),
-      // you can manually specify Quasar components/directives to be available everywhere:
-      //
-      // components: [],
-      // directives: [],
+          positive: '#28a745',
+          negative: '#d32f2f',
+          info: '#1976d2',
+          warning: '#ff9a25'
+        }
+      },
 
-      // Quasar plugins
+      // Plugins do Quasar que você quer usar
       plugins: [
-        'Notify'
+        'Notify',
+        'Loading',
+        'Dialog',
+        'Dark' // Importante para suporte a tema escuro
       ]
     },
 

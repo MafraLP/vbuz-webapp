@@ -1,31 +1,79 @@
 <template>
   <div class="route-map-step">
+    <!-- Gerenciadores invisíveis -->
+    <RouteDataManager
+      ref="dataManager"
+      :route-id="routeId"
+      :readonly="false"
+      :auto-load="true"
+      @route-loaded="onRouteLoaded"
+      @route-updated="onRouteUpdated"
+      @points-updated="onPointsUpdated"
+      @segments-updated="onSegmentsUpdated"
+      @error="onDataError"
+    />
+
+    <RoutePointsManager
+      ref="pointsManager"
+      :points="localRoutePoints"
+      :readonly="false"
+      :max-points="50"
+      :auto-sequence="true"
+      @points-updated="onPointsManagerUpdated"
+      @point-added="onPointAddedByManager"
+      @point-updated="onPointUpdatedByManager"
+      @point-removed="onPointRemovedByManager"
+      @error="onPointsError"
+    />
+
+    <RouteCalculationManager
+      ref="calculationManager"
+      :route-id="routeId"
+      :route-points="localRoutePoints"
+      :auto-calculate="false"
+      :institution-id="institutionId"
+      :route-name="routeName || 'Nova Rota'"
+      @calculation-started="onCalculationStarted"
+      @calculation-completed="onCalculationCompleted"
+      @calculation-failed="onCalculationFailed"
+      @route-created="onRouteCreated"
+      @route-updated="onCalculationRouteUpdated"
+      @error="onCalculationError"
+    />
+
+    <RouteNotificationManager
+      ref="notificationManager"
+      :enable-sound="true"
+      :default-timeout="3000"
+      :default-position="'top'"
+    />
+
     <!-- Barra de ações para o mapa -->
     <create-route-actions class="q-mb-sm">
       <template v-slot:left-actions>
         <add-point-action
-            ref="addPointAction"
-            :route-points="localRoutePoints"
-            :points-service="pointsService"
-            @update-map="onPointAdded"
+          ref="addPointAction"
+          :route-points="localRoutePoints"
+          :points-service="pointsService"
+          @update-map="onPointAdded"
         />
         <trace-route-action
-            :route-points="localRoutePoints"
-            :route-service="routeService"
-            @update-map="onRouteTraced"
-            @trace-route-direct="calculateRouteFromMap"
+          :route-points="localRoutePoints"
+          :route-service="routeService"
+          @update-map="onRouteTraced"
+          @trace-route-direct="calculateRouteFromMap"
         />
       </template>
       <template v-slot:right-actions>
         <undo-action
-            :history-service="historyService"
-            @update-map="onActionUndone"
+          :history-service="historyService"
+          @update-map="onActionUndone"
         />
         <save-route-action
-            :route-points="localRoutePoints"
-            :route-info="{ routeId }"
-            :route-service="routeService"
-            @update-map="onRouteSaved"
+          :route-points="localRoutePoints"
+          :route-info="{ routeId }"
+          :route-service="routeService"
+          @update-map="onRouteSaved"
         />
       </template>
     </create-route-actions>
@@ -43,11 +91,11 @@
             <div class="points-scroll-area">
               <q-list separator>
                 <q-item
-                    v-for="(point, index) in localRoutePoints"
-                    :key="`point-${point.id || index}-${point.lat}-${point.lng}`"
-                    clickable
-                    @click="selectPoint(point)"
-                    class="route-point-item"
+                  v-for="(point, index) in localRoutePoints"
+                  :key="`point-${point.id || index}-${point.lat}-${point.lng}`"
+                  clickable
+                  @click="selectPoint(point)"
+                  class="route-point-item"
                 >
                   <q-item-section>
                     <q-item-label>{{ point.name }}</q-item-label>
@@ -59,13 +107,13 @@
                     <q-btn flat round dense icon="more_vert">
                       <q-menu>
                         <q-list style="min-width: 120px">
-                          <q-item clickable v-close-popup @click="editPoint(point)">
+                          <q-item clickable v-close-popup @click="editPoint(point, index)">
                             <q-item-section avatar>
                               <q-icon name="edit" size="xs" />
                             </q-item-section>
                             <q-item-section>Editar</q-item-section>
                           </q-item>
-                          <q-item clickable v-close-popup @click="confirmDeletePoint(point)">
+                          <q-item clickable v-close-popup @click="confirmDeletePoint(point, index)">
                             <q-item-section avatar>
                               <q-icon name="delete" size="xs" />
                             </q-item-section>
@@ -73,10 +121,10 @@
                           </q-item>
                           <q-separator />
                           <q-item
-                              clickable
-                              v-close-popup
-                              @click="movePointUp(index)"
-                              :disable="index === 0"
+                            clickable
+                            v-close-popup
+                            @click="movePointUp(index)"
+                            :disable="index === 0"
                           >
                             <q-item-section avatar>
                               <q-icon name="keyboard_arrow_up" size="xs" />
@@ -84,10 +132,10 @@
                             <q-item-section>Mover acima</q-item-section>
                           </q-item>
                           <q-item
-                              clickable
-                              v-close-popup
-                              @click="movePointDown(index)"
-                              :disable="index === localRoutePoints.length - 1"
+                            clickable
+                            v-close-popup
+                            @click="movePointDown(index)"
+                            :disable="index === localRoutePoints.length - 1"
                           >
                             <q-item-section avatar>
                               <q-icon name="keyboard_arrow_down" size="xs" />
@@ -146,18 +194,23 @@
       <div class="col-12 col-md-9">
         <q-card class="map-card">
           <div class="map-wrapper">
-            <map-view
-                ref="mapView"
-                :route-points="localRoutePoints"
-                :route-id="routeId"
-                :route-draw="localRouteDraw"
-                @map-clicked="openAddPointModal"
-                @point-clicked="selectPoint"
-                @point-dragged="onPointDragged"
-                @route-updated="onRouteUpdated"
-                @route-loaded="onRouteLoaded"
-                @error="onMapError"
-            />
+            <MapView
+              ref="mapView"
+              :route-points="localRoutePoints"
+              :route-segments="localRouteDraw"
+              :route-data="routeData"
+              :readonly="false"
+              :auto-fit="true"
+              :center-on-load="true"
+              :show-user-location="true"
+              @map-ready="onMapReady"
+              @map-clicked="openAddPointModal"
+              @point-clicked="selectPoint"
+              @point-dragged="onPointDragged"
+              @error="onMapError"
+            >
+              <!-- Slots podem ser adicionados aqui se necessário -->
+            </MapView>
           </div>
         </q-card>
       </div>
@@ -165,18 +218,18 @@
 
     <div class="q-mt-lg row justify-between">
       <q-btn
-          label="Voltar"
-          color="grey"
-          flat
-          icon="arrow_back"
-          @click="$emit('back')"
+        label="Voltar"
+        color="grey"
+        flat
+        icon="arrow_back"
+        @click="$emit('back')"
       />
       <q-btn
-          label="Avançar"
-          color="primary"
-          icon-right="arrow_forward"
-          @click="validateAndContinue"
-          :disable="localRoutePoints.length < 2 || !localRouteDetails.totalDistance"
+        label="Avançar"
+        color="primary"
+        icon-right="arrow_forward"
+        @click="validateAndContinue"
+        :disable="localRoutePoints.length < 2 || !localRouteDetails.totalDistance"
       />
     </div>
 
@@ -224,20 +277,32 @@
 </template>
 
 <script>
-import { defineComponent } from 'vue';
-import { useQuasar } from 'quasar';
-import MapView from 'src/components/maps/MapView.vue';
-import CreateRouteActions from 'src/components/maps/create_routes/CreateRoutesActions.vue';
-import AddPointAction from 'src/components/maps/create_routes/actions/AddPointAction.vue';
-import TraceRouteAction from 'src/components/maps/create_routes/actions/TraceRouteAction.vue';
-import UndoAction from 'src/components/maps/create_routes/actions/UndoAction.vue';
-import SaveRouteAction from 'src/components/maps/create_routes/actions/SaveRouteAction.vue';
-import { routeApiService } from 'src/services/api/route/RouteApiService.js';
+import { defineComponent } from 'vue'
+import { useQuasar } from 'quasar'
+import { useAuthStore } from 'src/stores/auth'
+
+// Componentes gerenciadores
+import RouteDataManager from 'src/components/maps/managers/RouteDataManager.vue'
+import RoutePointsManager from 'src/components/maps/managers/RoutePointsManager.vue'
+import RouteCalculationManager from 'src/components/maps/managers/RouteCalculationManager.vue'
+import RouteNotificationManager from 'src/components/maps/managers/RouteNotificationManager.vue'
+
+// Componentes de UI
+import MapView from 'src/components/maps/MapView.vue'
+import CreateRouteActions from 'src/components/maps/create_routes/CreateRoutesActions.vue'
+import AddPointAction from 'src/components/maps/create_routes/actions/AddPointAction.vue'
+import TraceRouteAction from 'src/components/maps/create_routes/actions/TraceRouteAction.vue'
+import UndoAction from 'src/components/maps/create_routes/actions/UndoAction.vue'
+import SaveRouteAction from 'src/components/maps/create_routes/actions/SaveRouteAction.vue'
 
 export default defineComponent({
   name: 'RouteMapStep',
 
   components: {
+    RouteDataManager,
+    RoutePointsManager,
+    RouteCalculationManager,
+    RouteNotificationManager,
     MapView,
     CreateRouteActions,
     AddPointAction,
@@ -267,19 +332,27 @@ export default defineComponent({
     routeDraw: {
       type: Array,
       default: () => []
+    },
+    routeName: {
+      type: String,
+      default: 'Nova Rota'
     }
   },
 
   setup() {
-    const quasar = useQuasar();
-    return { quasar };
+    const quasar = useQuasar()
+    const authStore = useAuthStore()
+    return { quasar, authStore }
   },
 
   data() {
     return {
+      // Estado local (sincronizado com props e managers)
       localRoutePoints: [...this.routePoints],
       localRouteDetails: { ...this.routeDetails },
       localRouteDraw: [...this.routeDraw],
+      routeData: null,
+
       // Estado para ações de edição
       editPointModal: false,
       editingPoint: {
@@ -292,404 +365,631 @@ export default defineComponent({
       deleteConfirmModal: false,
       pointToDeleteIndex: null,
       pointToDelete: null,
-      actionHistory: [],
+
+      // Serviços para compatibilidade com componentes action existentes
       pointsService: {
         addPoint: (point) => {
-          console.log("Adicionando ponto:", point);
-          return Promise.resolve(point);
+          console.log('PointsService.addPoint chamado:', point)
+
+          // Corrigir ID duplicado
+          const newPoint = {
+            ...point,
+            id: `temp_${Date.now()}_${Math.random()}`, // ID único
+            sequence: this.localRoutePoints.length,
+            route_id: this.routeId
+          }
+
+          console.log('Adicionando ponto ao manager:', newPoint)
+          return this.$refs.pointsManager?.addPoint(newPoint)
         }
       },
       routeService: {
         calculateRoute: (points) => {
-          if (this.$refs.mapView && typeof this.$refs.mapView.calculateRoute === 'function') {
-            return this.$refs.mapView.calculateRoute();
+          console.log('RouteService.calculateRoute chamado com:', points?.length, 'pontos')
+
+          // Usar o RouteCalculationManager para calcular
+          if (this.$refs.calculationManager) {
+            return this.$refs.calculationManager.calculateRoute()
           } else {
-            console.error('MapView não encontrado ou método calculateRoute não disponível');
-            return Promise.reject(new Error('MapView não disponível'));
+            console.error('CalculationManager não disponível')
+            return Promise.reject(new Error('CalculationManager não disponível'))
           }
         },
         saveRoute: (points, info) => {
-          const routeData = {
-            points: points.map(p => ({
-              id: p.id && !p.id.toString().startsWith('temp_') ? p.id : undefined,
-              name: p.name,
-              latitude: p.lat || p.latitude,
-              longitude: p.lng || p.longitude,
-              sequence: p.sequence || 0
-            }))
-          };
+          console.log('RouteService.saveRoute chamado')
 
-          if (info.routeId) {
-            return routeApiService.updateRoute(info.routeId, routeData);
+          // Usar o RouteDataManager para salvar
+          if (this.$refs.dataManager) {
+            return this.$refs.dataManager.saveRouteData(info.routeId)
           } else {
-            return routeApiService.createRoute(routeData);
+            console.error('DataManager não disponível')
+            return Promise.reject(new Error('DataManager não disponível'))
           }
         }
       },
       historyService: {
         undo: () => {
-          if (this.actionHistory.length > 0) {
-            this.localRoutePoints = this.actionHistory.pop();
-            this.$emit('update:route-points', [...this.localRoutePoints]);
-            return Promise.resolve(true);
+          const success = this.$refs.pointsManager?.undo()
+          if (success) {
+            return Promise.resolve(true)
           }
-          return Promise.reject(new Error('No actions to undo'));
+          return Promise.reject(new Error('No actions to undo'))
         }
       }
-    };
+    }
+  },
+
+  computed: {
+    institutionId() {
+      return this.authStore.primaryInstitutionId
+    }
   },
 
   watch: {
     routePoints: {
       handler(newValue) {
-        this.localRoutePoints = [...newValue];
+        console.log('Props routePoints changed:', newValue.length)
+        // Evitar loop infinito comparando conteúdo
+        if (JSON.stringify(this.localRoutePoints) !== JSON.stringify(newValue)) {
+          this.localRoutePoints = [...newValue]
+        }
       },
       deep: true
     },
     routeDetails: {
       handler(newValue) {
-        this.localRouteDetails = { ...newValue };
+        this.localRouteDetails = { ...newValue }
       },
       deep: true
     },
     routeDraw: {
       handler(newValue) {
-        this.localRouteDraw = [...newValue];
+        this.localRouteDraw = [...newValue]
       },
       deep: true
     }
+    // REMOVIDO: localRoutePoints watcher que causava loop infinito
   },
 
   methods: {
+    // ===========================================
+    // EVENTOS DOS MANAGERS
+    // ===========================================
+    onRouteLoaded(routeData) {
+      console.log('Rota carregada pelo manager:', routeData)
+      this.routeData = routeData
+
+      if (routeData.points?.length > 0) {
+        this.localRoutePoints = [...routeData.points]
+        this.$emit('update:route-points', this.localRoutePoints)
+      }
+
+      if (routeData.segments?.length > 0) {
+        this.localRouteDraw = [...routeData.segments]
+        this.$emit('update:route-draw', this.localRouteDraw)
+      }
+
+      const updatedDetails = {
+        totalDistance: routeData.total_distance || 0,
+        totalDuration: routeData.total_duration || 0
+      }
+      this.localRouteDetails = updatedDetails
+      this.$emit('update:route-details', updatedDetails)
+    },
+
+    onRouteUpdated(routeData) {
+      console.log('Rota atualizada pelo manager:', routeData)
+      this.routeData = routeData
+    },
+
+    onPointsUpdated(points) {
+      console.log('Pontos atualizados pelo DataManager:', points.length)
+      this.localRoutePoints = [...points]
+      this.$emit('update:route-points', this.localRoutePoints)
+    },
+
+    onSegmentsUpdated(segments) {
+      console.log('Segmentos atualizados pelo DataManager:', segments.length)
+      this.localRouteDraw = [...segments]
+      this.$emit('update:route-draw', this.localRouteDraw)
+    },
+
+    onPointsManagerUpdated(points) {
+      console.log('Pontos atualizados pelo PointsManager:', points.length)
+
+      // CRUCIAL: Evitar loop comparando conteúdo antes de atualizar
+      if (JSON.stringify(this.localRoutePoints) !== JSON.stringify(points)) {
+        this.localRoutePoints = [...points]
+        this.$emit('update:route-points', this.localRoutePoints)
+
+        console.log('Pontos sincronizados - emitindo para parent')
+      } else {
+        console.log('Pontos já estão sincronizados - evitando loop')
+      }
+    },
+
+    onPointAddedByManager(data) {
+      console.log('Ponto adicionado pelo manager:', data.point.name)
+      this.$refs.notificationManager?.showPointAdded(data.point.name)
+
+      // CRUCIAL: Sincronizar imediatamente
+      this.syncPointsFromManager()
+    },
+
+    onPointUpdatedByManager(data) {
+      console.log('Ponto atualizado pelo manager:', data.point.name)
+      this.$refs.notificationManager?.showInfo(`Ponto "${data.point.name}" atualizado`)
+
+      // CRUCIAL: Sincronizar imediatamente
+      this.syncPointsFromManager()
+    },
+
+    onPointRemovedByManager(data) {
+      console.log('Ponto removido pelo manager:', data.point.name)
+      this.$refs.notificationManager?.showTemplateNotification('pointRemoved', data.point.name)
+
+      // CRUCIAL: Sincronizar imediatamente
+      this.syncPointsFromManager()
+    },
+
+    // Método para sincronizar pontos do manager
+    syncPointsFromManager() {
+      if (this.$refs.pointsManager) {
+        const currentPoints = this.$refs.pointsManager.getAllPoints()
+        console.log('Sincronizando pontos do manager:', currentPoints.length)
+
+        // CRUCIAL: Evitar loop comparando antes de atualizar
+        if (JSON.stringify(this.localRoutePoints) !== JSON.stringify(currentPoints)) {
+          this.localRoutePoints = [...currentPoints]
+          this.$emit('update:route-points', this.localRoutePoints)
+
+          console.log('Sincronização completa')
+        } else {
+          console.log('Pontos já sincronizados')
+        }
+      }
+    },
+
+    onCalculationStarted() {
+      this.$refs.notificationManager?.showCalculationStarted()
+    },
+
+    onCalculationCompleted(data) {
+      console.log('Cálculo concluído pelo manager:', data)
+
+      this.$refs.notificationManager?.showCalculationCompleted(
+        data.calculationTime,
+        data.routeData?.total_distance / 1000 || 0
+      )
+
+      // Atualizar dados locais COM VALIDAÇÃO
+      if (data.routeData) {
+        // Atualizar detalhes
+        const updatedDetails = {
+          totalDistance: data.routeData.total_distance || 0,
+          totalDuration: data.routeData.total_duration || 0
+        }
+
+        // Só atualizar se os valores mudaram
+        if (JSON.stringify(this.localRouteDetails) !== JSON.stringify(updatedDetails)) {
+          this.localRouteDetails = updatedDetails
+          this.$emit('update:route-details', updatedDetails)
+          console.log('Detalhes da rota atualizados:', updatedDetails)
+        }
+
+        // Atualizar segmentos
+        if (data.routeData.segments && Array.isArray(data.routeData.segments)) {
+          const newSegments = [...data.routeData.segments]
+
+          // Só atualizar se os segmentos mudaram
+          if (JSON.stringify(this.localRouteDraw) !== JSON.stringify(newSegments)) {
+            this.localRouteDraw = newSegments
+            this.$emit('update:route-draw', newSegments)
+            console.log('Segmentos da rota atualizados:', newSegments.length)
+          }
+        }
+
+        // Emitir evento para TraceRouteAction saber que terminou
+        this.$emit('route-calculated', {
+          success: true,
+          totalDistance: updatedDetails.totalDistance,
+          totalDuration: updatedDetails.totalDuration,
+          segments: this.localRouteDraw
+        })
+      }
+    },
+
+    onCalculationFailed(data) {
+      console.log('Cálculo falhou:', data.error)
+
+      this.$refs.notificationManager?.showCalculationError(data.error)
+
+      // Emitir evento para TraceRouteAction saber que falhou
+      this.$emit('route-calculation-failed', {
+        success: false,
+        error: data.error
+      })
+    },
+
+    onRouteCreated(routeData) {
+      console.log('Nova rota criada:', routeData.id)
+      this.routeData = routeData
+      this.unsavedChanges = false
+
+      this.$refs.notificationManager?.showRouteCreated(
+        routeData.name,
+        routeData.id
+      )
+
+      // *** NÃO REDIRECIONAR - Apenas emitir evento ***
+      this.$emit('route-created', routeData)
+
+      // NÃO FAZER: this.$emit('route-id-changed', routeData.id)
+      // Isso evita redirecionamento automático
+    },
+
+    onCalculationRouteUpdated(routeData) {
+      this.routeData = routeData
+    },
+
+    onDataError(errorData) {
+      this.$refs.notificationManager?.showError(errorData.message)
+    },
+
+    onPointsError(errorData) {
+      this.$refs.notificationManager?.showError(errorData.message)
+    },
+
+    onCalculationError(errorData) {
+      this.$refs.notificationManager?.showError(errorData.message)
+    },
+
+    onMapReady(mapInstance) {
+      console.log('Mapa pronto')
+    },
+
+    onMapError(errorData) {
+      this.$refs.notificationManager?.showError(errorData.message)
+    },
+
+    // ===========================================
+    // MÉTODOS DE VALIDAÇÃO E NAVEGAÇÃO
+    // ===========================================
     async validateAndContinue() {
       // Validar se temos pontos suficientes
       if (this.localRoutePoints.length < 2) {
-        this.quasar.notify({
-          type: 'warning',
-          message: 'Adicione pelo menos 2 pontos para criar uma rota'
-        });
-        return;
+        this.$refs.notificationManager?.showWarning('Adicione pelo menos 2 pontos para criar uma rota')
+        return
       }
 
       // Validar se a rota foi calculada
       if (!this.localRouteDetails.totalDistance) {
-        // Se não temos distância calculada, vamos calcular a rota
         try {
-          await this.calculateRouteFromMap();
+          await this.calculateRouteFromMap()
         } catch (error) {
-          this.quasar.notify({
-            type: 'warning',
-            message: 'Não foi possível calcular a rota. Tente novamente.'
-          });
-          return;
+          this.$refs.notificationManager?.showWarning('Não foi possível calcular a rota. Tente novamente.')
+          return
         }
       }
 
       // Verificar se temos os segmentos
       if (!this.localRouteDraw || this.localRouteDraw.length === 0) {
-        this.quasar.notify({
-          type: 'warning',
-          message: 'Aguarde o cálculo da rota ser finalizado'
-        });
-        return;
+        this.$refs.notificationManager?.showWarning('Aguarde o cálculo da rota ser finalizado')
+        return
       }
 
-      // Se chegamos aqui, temos todos os dados necessários
-      this.$emit('next');
+      this.$emit('next')
     },
 
     async calculateRouteFromMap() {
-      if (this.$refs.mapView && typeof this.$refs.mapView.calculateRoute === 'function') {
-        try {
-          await this.$refs.mapView.calculateRoute();
-        } catch (error) {
-          console.error('Erro ao calcular rota via MapView:', error);
-          throw error;
+      console.log('calculateRouteFromMap chamado')
+
+      // Verificar se temos pontos suficientes
+      if (this.localRoutePoints.length < 2) {
+        this.$refs.notificationManager?.showWarning('Adicione pelo menos 2 pontos para calcular a rota')
+        return Promise.reject(new Error('Pontos insuficientes'))
+      }
+
+      try {
+        console.log('Iniciando cálculo via CalculationManager...')
+
+        // Usar o RouteCalculationManager
+        if (this.$refs.calculationManager) {
+          const result = await this.$refs.calculationManager.calculateRoute()
+          console.log('Cálculo concluído via manager:', result)
+          return result
+        } else {
+          throw new Error('CalculationManager não disponível')
         }
-      } else {
-        console.error('MapView não encontrado');
-        throw new Error('MapView não disponível');
+      } catch (error) {
+        console.error('Erro ao calcular rota via manager:', error)
+
+        // Fallback: notificar erro via NotificationManager
+        this.$refs.notificationManager?.showCalculationError(error)
+        throw error
       }
     },
 
+    // ===========================================
+    // MÉTODOS DE MANIPULAÇÃO DE PONTOS
+    // ===========================================
     openAddPointModal(coords) {
-      console.log('Coordenadas do clique recebidas:', coords);
+      console.log('Coordenadas do clique recebidas:', coords)
 
       if (this.$refs.addPointAction) {
-        console.log('Chamando openModal no AddPointAction');
-        this.$refs.addPointAction.openModal(coords);
+        this.$refs.addPointAction.openModal(coords)
       } else {
-        console.error('Componente AddPointAction não encontrado');
+        // Fallback: adicionar ponto diretamente via manager
+        console.log('AddPointAction não encontrado, adicionando ponto diretamente')
+        const newPoint = this.$refs.pointsManager?.addPointAtCoordinates(
+          coords.lat,
+          coords.lng,
+          `Ponto ${this.localRoutePoints.length + 1}`
+        )
+
+        if (newPoint) {
+          console.log('Ponto adicionado diretamente:', newPoint)
+        }
       }
     },
 
     onPointAdded(point) {
-      this.saveToHistory();
+      console.log('Ponto adicionado via action:', point)
 
-      const newPoint = {
-        ...point,
-        sequence: this.localRoutePoints.length,
-        route_id: this.routeId
-      };
+      // MELHOR ABORDAGEM: Não adicionar manualmente, deixar o PointsService fazer
+      // O PointsService já chama this.$refs.pointsManager?.addPoint(newPoint)
+      // E o manager emitirá o evento que atualizará tudo automaticamente
 
-      this.localRoutePoints.push(newPoint);
-      this.$emit('update:route-points', [...this.localRoutePoints]);
-    },
-
-    saveToHistory() {
-      this.actionHistory.push(JSON.parse(JSON.stringify(this.localRoutePoints)));
-
-      if (this.actionHistory.length > 20) {
-        this.actionHistory.shift();
-      }
+      console.log('Ponto será processado pelo PointsService automaticamente')
     },
 
     selectPoint(point) {
-      console.log('Ponto selecionado:', point);
+      console.log('Ponto selecionado:', point)
+      // Centralizar no mapa se possível
       if (this.$refs.mapView && typeof this.$refs.mapView.centerOnPoint === 'function') {
-        this.$refs.mapView.centerOnPoint(point);
+        this.$refs.mapView.centerOnPoint(point)
       }
     },
 
     onPointDragged(pointData) {
-      console.log('Evento de arrasto recebido:', pointData);
+      console.log('Evento de arrasto recebido:', pointData)
 
-      this.saveToHistory();
-
-      const index = pointData.index;
-      if (index >= 0 && index < this.localRoutePoints.length) {
-        this.localRoutePoints[index] = {
-          ...this.localRoutePoints[index],
-          lat: pointData.lat,
-          lng: pointData.lng,
-          latitude: pointData.lat,
-          longitude: pointData.lng
-        };
-
-        this.$emit('update:route-points', [...this.localRoutePoints]);
-
-        this.quasar.notify({
-          type: 'info',
-          message: `Ponto "${this.localRoutePoints[index].name}" movido`,
-          position: 'top',
-          timeout: 2000
-        });
-      }
+      this.$refs.pointsManager?.updatePointCoordinates(
+        pointData.index,
+        pointData.lat,
+        pointData.lng
+      )
     },
 
-    editPoint(point) {
-      const index = this.localRoutePoints.findIndex(p => p.id === point.id);
-
+    editPoint(point, index) {
       this.editingPoint = {
         name: point.name,
         lat: point.lat || point.latitude,
         lng: point.lng || point.longitude,
         index: index,
         id: point.id
-      };
-      this.editPointModal = true;
+      }
+      this.editPointModal = true
     },
 
     saveEditedPoint() {
-      const { index } = this.editingPoint;
+      const { index, name, lat, lng } = this.editingPoint
 
-      if (index >= 0 && index < this.localRoutePoints.length) {
-        this.saveToHistory();
-
-        this.localRoutePoints[index] = {
-          ...this.localRoutePoints[index],
-          name: this.editingPoint.name,
-          lat: this.editingPoint.lat,
-          lng: this.editingPoint.lng
-        };
-
-        this.$emit('update:route-points', [...this.localRoutePoints]);
-
-        this.quasar.notify({
-          type: 'positive',
-          message: 'Ponto atualizado'
-        });
-      }
+      this.$refs.pointsManager?.updatePoint(index, {
+        name,
+        lat,
+        lng,
+        latitude: lat,
+        longitude: lng
+      })
     },
 
-    confirmDeletePoint(point) {
-      const index = this.localRoutePoints.findIndex(p => p.id === point.id);
-
-      this.pointToDeleteIndex = index;
-      this.pointToDelete = point;
-      this.deleteConfirmModal = true;
+    confirmDeletePoint(point, index) {
+      this.pointToDeleteIndex = index
+      this.pointToDelete = point
+      this.deleteConfirmModal = true
     },
 
     deletePoint() {
-      if (this.pointToDeleteIndex !== null &&
-          this.pointToDeleteIndex >= 0 &&
-          this.pointToDeleteIndex < this.localRoutePoints.length) {
+      if (this.pointToDeleteIndex !== null) {
+        this.$refs.pointsManager?.removePoint(this.pointToDeleteIndex)
 
-        this.saveToHistory();
-
-        this.localRoutePoints.splice(this.pointToDeleteIndex, 1);
-
-        this.localRoutePoints.forEach((point, idx) => {
-          point.sequence = idx;
-        });
-
-        this.$emit('update:route-points', [...this.localRoutePoints]);
-
-        this.quasar.notify({
-          type: 'positive',
-          message: `Ponto "${this.pointToDelete?.name || 'selecionado'}" removido`
-        });
-
-        this.pointToDeleteIndex = null;
-        this.pointToDelete = null;
+        this.pointToDeleteIndex = null
+        this.pointToDelete = null
       }
     },
 
     movePointUp(index) {
-      if (index > 0) {
-        this.saveToHistory();
-
-        const temp = this.localRoutePoints[index];
-        this.localRoutePoints[index] = this.localRoutePoints[index - 1];
-        this.localRoutePoints[index - 1] = temp;
-
-        this.localRoutePoints.forEach((point, idx) => {
-          point.sequence = idx;
-        });
-
-        this.$emit('update:route-points', [...this.localRoutePoints]);
-      }
+      this.$refs.pointsManager?.movePoint(index, index - 1)
     },
 
     movePointDown(index) {
-      if (index < this.localRoutePoints.length - 1) {
-        this.saveToHistory();
-
-        const temp = this.localRoutePoints[index];
-        this.localRoutePoints[index] = this.localRoutePoints[index + 1];
-        this.localRoutePoints[index + 1] = temp;
-
-        this.localRoutePoints.forEach((point, idx) => {
-          point.sequence = idx;
-        });
-
-        this.$emit('update:route-points', [...this.localRoutePoints]);
-      }
+      this.$refs.pointsManager?.movePoint(index, index + 1)
     },
 
-    onRouteUpdated(data) {
-      console.log('Route updated:', data);
-      let updatedDetails = { ...this.localRouteDetails };
-
-      if (data) {
-        if (data.totalDistance) updatedDetails.totalDistance = data.totalDistance;
-        if (data.totalDuration) updatedDetails.totalDuration = data.totalDuration;
-
-        // *** CORREÇÃO PRINCIPAL: Garantir que os segmentos sejam repassados ***
-        if (data.segments) {
-          this.localRouteDraw = data.segments;
-          this.$emit('update:route-draw', data.segments);
-          console.log('Emitindo segmentos para o pai:', data.segments.length, 'segmentos');
-        }
-      }
-
-      this.localRouteDetails = updatedDetails;
-      this.$emit('update:route-details', updatedDetails);
-    },
-
+    // ===========================================
+    // EVENTOS DE COMPATIBILIDADE (para actions existentes)
+    // ===========================================
+    // ===========================================
+    // EVENTOS DE COMPATIBILIDADE (para actions existentes)
+    // ===========================================
     onRouteTraced(data) {
-      console.log('Route traced:', data);
-      if (data) {
-        const updatedDetails = {
-          totalDistance: data.totalDistance || 0,
-          totalDuration: data.totalDuration || 0
-        };
+      console.log('Route traced via TraceRouteAction:', data)
 
-        this.localRouteDetails = updatedDetails;
-        this.$emit('update:route-details', updatedDetails);
-
-        // *** CORREÇÃO: Garantir que os segmentos sejam emitidos ***
-        if (data.segments) {
-          this.localRouteDraw = data.segments;
-          this.$emit('update:route-draw', data.segments);
-          console.log('Segmentos do trace emitidos:', data.segments.length);
-        }
-      }
-    },
-
-    onRouteLoaded(routeData) {
-      console.log('Route loaded:', routeData);
-      if (routeData) {
-        if (routeData.points && routeData.points.length > 0) {
-          this.localRoutePoints = routeData.points.map(p => ({
-            id: p.id,
-            name: p.name,
-            lat: p.latitude,
-            lng: p.longitude,
-            sequence: p.sequence,
-            route_id: this.routeId
-          }));
-
-          this.$emit('update:route-points', [...this.localRoutePoints]);
+      // O cálculo será tratado pelo manager automaticamente
+      // Os dados chegaram do TraceRouteAction, vamos processar
+      if (data && typeof data === 'object') {
+        // Atualizar detalhes se fornecidos
+        if (data.totalDistance || data.totalDuration) {
+          const updatedDetails = {
+            totalDistance: data.totalDistance || this.localRouteDetails.totalDistance,
+            totalDuration: data.totalDuration || this.localRouteDetails.totalDuration
+          }
+          this.localRouteDetails = updatedDetails
+          this.$emit('update:route-details', updatedDetails)
         }
 
-        // *** CORREÇÃO: Garantir emissão dos segmentos ***
-        if (routeData.segments) {
-          this.localRouteDraw = routeData.segments;
-          this.$emit('update:route-draw', routeData.segments);
-          console.log('Segmentos carregados emitidos:', routeData.segments.length);
+        // Atualizar segmentos se fornecidos
+        if (data.segments && Array.isArray(data.segments)) {
+          console.log('Segmentos recebidos do TraceRouteAction:', data.segments.length)
+          this.localRouteDraw = [...data.segments]
+          this.$emit('update:route-draw', this.localRouteDraw)
         }
 
-        const updatedDetails = {
-          totalDistance: routeData.total_distance || 0,
-          totalDuration: routeData.total_duration || 0
-        };
-
-        this.localRouteDetails = updatedDetails;
-        this.$emit('update:route-details', updatedDetails);
+        // Se houver dados de rota completa, atualizar via DataManager
+        if (data.route || data.routeData) {
+          const routeData = data.route || data.routeData
+          if (this.$refs.dataManager) {
+            this.$refs.dataManager.setRouteData(routeData)
+          }
+        }
       }
     },
 
     onActionUndone() {
-      this.quasar.notify({
-        type: 'positive',
-        message: 'Ação desfeita'
-      });
+      this.$refs.notificationManager?.showInfo('Ação desfeita')
     },
 
     onRouteSaved(data) {
-      this.quasar.notify({
-        type: 'positive',
-        message: 'Rota salva com sucesso'
-      });
+      this.$refs.notificationManager?.showSuccess('Rota salva com sucesso')
     },
 
-    onMapError(error) {
-      console.error('Erro no mapa:', error);
-      this.quasar.notify({
-        type: 'negative',
-        message: error.message || 'Erro no mapa'
-      });
+    // ===========================================
+    // MÉTODOS PÚBLICOS PARA O ROUTE CREATION PAGE
+    // ===========================================
+
+    // Método para salvar dados da rota (exposto para o parent)
+    async saveRouteData() {
+      try {
+        if (this.$refs.dataManager) {
+          return await this.$refs.dataManager.saveRouteData(this.routeId)
+        }
+        throw new Error('DataManager não disponível')
+      } catch (error) {
+        console.error('Erro ao salvar via manager:', error)
+        throw error
+      }
     },
 
+    // Método para atualizar informações da rota
+    async updateRouteInfo(routeInfo) {
+      if (this.routeData) {
+        const updatedData = {
+          ...this.routeData,
+          name: routeInfo.name,
+          description: routeInfo.description,
+          schedule_data: {
+            start_time: routeInfo.startTime,
+            end_time: routeInfo.endTime,
+            days: this.convertDaysToArray(routeInfo.days)
+          },
+          permissions: (routeInfo.allowedCards || []).map(card =>
+            typeof card === 'string' ? card : card.value
+          )
+        }
+
+        if (this.$refs.dataManager) {
+          this.$refs.dataManager.setRouteData(updatedData)
+        }
+      }
+    },
+
+    convertDaysToArray(days) {
+      const result = []
+      if (days.mon) result.push(1)
+      if (days.tue) result.push(2)
+      if (days.wed) result.push(3)
+      if (days.thu) result.push(4)
+      if (days.fri) result.push(5)
+      if (days.sat) result.push(6)
+      if (days.sun) result.push(7)
+      return result.length > 0 ? result : [1, 2, 3, 4, 5]
+    },
+
+    // Método para calcular rota (exposto para o parent)
+    async calculateRoute() {
+      try {
+        if (this.$refs.calculationManager) {
+          return await this.$refs.calculationManager.calculateRoute()
+        }
+        throw new Error('CalculationManager não disponível')
+      } catch (error) {
+        console.error('Erro ao calcular via manager:', error)
+        throw error
+      }
+    },
+
+    // Método para obter estado atual dos managers
+    getManagersState() {
+      return {
+        dataManager: this.$refs.dataManager?.getCurrentState(),
+        pointsManager: this.$refs.pointsManager?.getCurrentState(),
+        calculationManager: this.$refs.calculationManager?.getCalculationState(),
+        notificationManager: this.$refs.notificationManager?.getCurrentState()
+      }
+    },
+
+    // Método para validar dados antes de continuar
+    validateRouteData() {
+      const dataValidation = this.$refs.dataManager?.validateRouteData()
+      const pointsValidation = this.$refs.pointsManager?.validatePoints()
+
+      const allErrors = [
+        ...(dataValidation?.errors || []),
+        ...(pointsValidation?.errors || [])
+      ]
+
+      return {
+        valid: allErrors.length === 0,
+        errors: allErrors
+      }
+    },
+
+    // ===========================================
+    // EVENTOS ADICIONAIS PARA O PARENT
+    // ===========================================
+    onRouteLoaded(routeData) {
+      console.log('Rota carregada pelo manager:', routeData)
+      this.routeData = routeData
+
+      if (routeData.points?.length > 0) {
+        this.localRoutePoints = [...routeData.points]
+        this.$emit('update:route-points', this.localRoutePoints)
+      }
+
+      if (routeData.segments?.length > 0) {
+        this.localRouteDraw = [...routeData.segments]
+        this.$emit('update:route-draw', this.localRouteDraw)
+      }
+
+      const updatedDetails = {
+        totalDistance: routeData.total_distance || 0,
+        totalDuration: routeData.total_duration || 0
+      }
+      this.localRouteDetails = updatedDetails
+      this.$emit('update:route-details', updatedDetails)
+
+      // Emitir evento para o parent (RouteCreationPage)
+      this.$emit('route-loaded', routeData)
+    },
     formatDuration(seconds) {
-      if (!seconds) return '0 min';
+      if (!seconds) return '0 min'
 
-      const hours = Math.floor(seconds / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
+      const hours = Math.floor(seconds / 3600)
+      const minutes = Math.floor((seconds % 3600) / 60)
 
       if (hours > 0) {
-        return `${hours}h ${minutes}min`;
+        return `${hours}h ${minutes}min`
       }
-      return `${minutes}min`;
+      return `${minutes}min`
     },
 
     formatCoords(lat, lng) {
-      if (!lat || !lng) return 'Coordenadas não definidas';
-      return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`;
+      if (!lat || !lng) return 'Coordenadas não definidas'
+      return `${Number(lat).toFixed(6)}, ${Number(lng).toFixed(6)}`
     }
   }
-});
+})
 </script>
 
 <style scoped>
@@ -702,6 +1002,14 @@ export default defineComponent({
 .map-card {
   width: 100%;
   height: 100%;
+  background: var(--q-secondary-background);
+  border: 1px solid var(--q-accent-4);
+  border-color: rgba(255, 99, 0, 0.1);
+
+  .body--dark & {
+    background: var(--q-secondary-background);
+    border-color: rgba(255, 161, 0, 0.2);
+  }
 }
 
 .points-container {
@@ -728,7 +1036,11 @@ export default defineComponent({
 }
 
 .route-details {
-  background-color: #f8f9fa;
+  background: var(--q-primary-background);
+
+  .body--dark & {
+    background: var(--q-primary-background);
+  }
 }
 
 .detail-item {
@@ -748,17 +1060,22 @@ export default defineComponent({
 
 .detail-label {
   font-size: 0.75rem;
-  color: #666;
+  color: var(--q-secondary-text);
   margin-bottom: 2px;
 }
 
 .detail-value {
   font-weight: 500;
-  color: #333;
+  color: var(--q-primary-text);
 }
 
 .route-point-item {
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--q-accent-4);
+  border-bottom-color: rgba(255, 99, 0, 0.1);
+
+  .body--dark & {
+    border-bottom-color: rgba(255, 161, 0, 0.15);
+  }
 }
 
 .route-point-item:last-child {
@@ -769,9 +1086,14 @@ export default defineComponent({
   height: 600px;
   width: 100%;
   position: relative;
-  border: 1px solid #ddd;
+  border: 1px solid var(--q-accent-4);
+  border-color: rgba(255, 99, 0, 0.2);
   border-radius: 4px;
   overflow: hidden;
+
+  .body--dark & {
+    border-color: rgba(255, 161, 0, 0.3);
+  }
 }
 
 /* Responsividade */

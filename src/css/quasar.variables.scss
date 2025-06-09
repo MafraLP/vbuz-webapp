@@ -1,25 +1,236 @@
-// Quasar SCSS (& Sass) Variables
-// --------------------------------------------------
-// To customize the look and feel of this app, you can override
-// the Sass/SCSS variables found in Quasar's source Sass/SCSS files.
+:root {
+  // Brand Colors
+  --q-primary: #ff6300;
+  --q-secondary: #ffa100;
+  --q-tertiary: #f4d508;
+  --q-alternate: #f2ef12;
 
-// Check documentation for full list of Quasar variables
+  // Utility Colors
+  --q-primary-text: #0c0f0a;
+  --q-secondary-text: #575757;
+  --q-primary-background: #fffdf6;
+  --q-secondary-background: #ffffff;
 
-// Your own variables (that are declared here) and Quasar's own
-// ones will be available out of the box in your .vue/.scss/.sass files
+  // Accent Colors
+  --q-accent-1: #f27c34;
+  --q-accent-2: #ff4f78;
+  --q-accent-3: #f9b42f;
+  --q-accent-4: #e8eec3;
 
-// It's highly recommended to change the default colors
-// to match your app's branding.
-// Tip: Use the "Theme Builder" on Quasar's documentation website.
+  // Semantic Colors
+  --q-positive: #28a745;
+  --q-negative: #d32f2f;
+  --q-warning: #ff9a25;
+  --q-info: #1976d2;
 
-$primary   : #1976D2;
-$secondary : #26A69A;
-$accent    : #9C27B0;
+  // Custom Colors
+  --q-orange-pantone: #ff6300;
+  --q-night: #0c0f0a;
+  --q-orange-peel: #ffa100;
+  --q-school-bus-yellow: #f4d508;
+  --q-aureolin: #f2ef12;
 
-$dark      : #1D1D1D;
-$dark-page : #121212;
+  // Quasar Default Variables Override
+  --q-color-primary: #ff6300;
+  --q-color-secondary: #ffa100;
+  --q-color-accent: #f27c34;
+  --q-color-dark: #0c0f0a;
+  --q-color-positive: #28a745;
+  --q-color-negative: #d32f2f;
+  --q-color-info: #1976d2;
+  --q-color-warning: #ff9a25;
+}
 
-$positive  : #21BA45;
-$negative  : #C10015;
-$info      : #31CCEC;
-$warning   : #F2C037;
+// DARK MODE THEME
+body.body--dark {
+  // Brand Colors
+  --q-primary: #ff6300;
+  --q-secondary: #ffa100;
+  --q-tertiary: #f4d508;
+  --q-alternate: #f2ef12;
+
+  // Utility Colors
+  --q-primary-text: #ffffff;
+  --q-secondary-text: #d9d9d9;
+  --q-primary-background: #0c0f0a;
+  --q-secondary-background: #1a1a1a;
+
+  // Accent Colors
+  --q-accent-1: #ff8540;
+  --q-accent-2: #ffd47d;
+  --q-accent-3: #f5b42f;
+  --q-accent-4: #706c42;
+
+  // Semantic Colors
+  --q-positive: #00b853;
+  --q-negative: #d53500;
+  --q-warning: #ffb300;
+  --q-info: #64b5f6;
+
+  // Custom Colors remain the same
+  --q-orange-pantone: #ff6300;
+  --q-night: #0c0f0a;
+  --q-orange-peel: #ffa100;
+  --q-school-bus-yellow: #f4d508;
+  --q-aureolin: #f2ef12;
+
+  // Quasar Default Variables Override for Dark Mode
+  --q-color-primary: #ff6300;
+  --q-color-secondary: #ffa100;
+  --q-color-accent: #ff8540;
+  --q-color-dark: #ffffff;
+  --q-color-positive: #00b853;
+  --q-color-negative: #d53500;
+  --q-color-info: #64b5f6;
+  --q-color-warning: #ffb300;
+}
+
+// SASS Variables for Quasar (Light Mode Default)
+$primary   : #ff6300;
+$secondary : #ffa100;
+$accent    : #f27c34;
+
+$dark      : #0c0f0a;
+$dark-page : #0c0f0a;
+
+$positive  : #28a745;
+$negative  : #d32f2f;
+$info      : #1976d2;
+$warning   : #ff9a25;
+
+// Additional Custom SASS Variables
+$orange-pantone: #ff6300;
+$night: #0c0f0a;
+$orange-peel: #ffa100;
+$school-bus-yellow: #f4d508;
+$aureolin: #f2ef12;
+
+// Light Mode Specific
+$primary-text: #0c0f0a;
+$secondary-text: #575757;
+$primary-background: #fffdf6;
+$secondary-background: #ffffff;
+
+$accent-1: #f27c34;
+$accent-2: #ff4f78;
+$accent-3: #f9b42f;
+$accent-4: #e8eec3;
+
+// Dark Mode Variables (for use in mixins)
+$dark-primary-text: #ffffff;
+$dark-secondary-text: #d9d9d9;
+$dark-primary-background: #0c0f0a;
+$dark-secondary-background: #1a1a1a;
+
+$dark-accent-1: #ff8540;
+$dark-accent-2: #ffd47d;
+$dark-accent-3: #f5b42f;
+$dark-accent-4: #706c42;
+
+$dark-positive: #00b853;
+$dark-negative: #d53500;
+$dark-warning: #ffb300;
+$dark-info: #64b5f6;
+
+// Utility Classes for Easy Usage
+.text-primary-custom {
+  color: var(--q-primary-text) !important;
+}
+
+.text-secondary-custom {
+  color: var(--q-secondary-text) !important;
+}
+
+.bg-primary-custom {
+  background-color: var(--q-primary-background) !important;
+}
+
+.bg-secondary-custom {
+  background-color: var(--q-secondary-background) !important;
+}
+
+.text-accent-1 {
+  color: var(--q-accent-1) !important;
+}
+
+.text-accent-2 {
+  color: var(--q-accent-2) !important;
+}
+
+.text-accent-3 {
+  color: var(--q-accent-3) !important;
+}
+
+.text-accent-4 {
+  color: var(--q-accent-4) !important;
+}
+
+.bg-accent-1 {
+  background-color: var(--q-accent-1) !important;
+}
+
+.bg-accent-2 {
+  background-color: var(--q-accent-2) !important;
+}
+
+.bg-accent-3 {
+  background-color: var(--q-accent-3) !important;
+}
+
+.bg-accent-4 {
+  background-color: var(--q-accent-4) !important;
+}
+
+// Custom color classes
+.text-orange-pantone {
+  color: var(--q-orange-pantone) !important;
+}
+
+.text-night {
+  color: var(--q-night) !important;
+}
+
+.text-orange-peel {
+  color: var(--q-orange-peel) !important;
+}
+
+.text-school-bus-yellow {
+  color: var(--q-school-bus-yellow) !important;
+}
+
+.text-aureolin {
+  color: var(--q-aureolin) !important;
+}
+
+.bg-orange-pantone {
+  background-color: var(--q-orange-pantone) !important;
+}
+
+.bg-night {
+  background-color: var(--q-night) !important;
+}
+
+.bg-orange-peel {
+  background-color: var(--q-orange-peel) !important;
+}
+
+.bg-school-bus-yellow {
+  background-color: var(--q-school-bus-yellow) !important;
+}
+
+.bg-aureolin {
+  background-color: var(--q-aureolin) !important;
+}
+
+// Gradient Utilities
+.gradient-primary {
+  background: linear-gradient(135deg, var(--q-primary) 0%, var(--q-secondary) 100%) !important;
+}
+
+.gradient-accent {
+  background: linear-gradient(135deg, var(--q-accent-1) 0%, var(--q-accent-2) 100%) !important;
+}
+
+.gradient-warm {
+  background: linear-gradient(135deg, var(--q-orange-pantone) 0%, var(--q-school-bus-yellow) 100%) !important;
+}

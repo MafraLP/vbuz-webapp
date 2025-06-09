@@ -565,37 +565,445 @@ export default {
 <style lang="scss" scoped>
 .map-card {
   height: 100%;
+  background: var(--q-secondary-background);
+  border: 1px solid var(--q-primary);
+  border-color: rgba(255, 99, 0, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all 0.3s ease;
+
+  &:hover {
+    box-shadow: 0 8px 24px rgba(255, 99, 0, 0.15);
+    transform: translateY(-2px);
+  }
+
+  .body--dark & {
+    background: var(--q-secondary-background);
+    border-color: rgba(255, 161, 0, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+
+    &:hover {
+      box-shadow: 0 8px 24px rgba(255, 161, 0, 0.2);
+    }
+  }
 }
 
 .map-container {
   width: 100%;
   height: 100%;
   position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+
+  // Overlay para melhor contraste dos controles do mapa
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        45deg,
+        transparent 0%,
+        rgba(255, 99, 0, 0.02) 50%,
+        transparent 100%
+    );
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .body--dark &::before {
+    background: linear-gradient(
+        45deg,
+        transparent 0%,
+        rgba(255, 161, 0, 0.05) 50%,
+        transparent 100%
+    );
+  }
 }
 
 .institution-header {
-  background-color: #f5f5f5;
+  background: var(--q-primary-background);
+  border-bottom: 2px solid var(--q-primary);
+  color: var(--q-primary-text);
+  position: relative;
+
+  // Gradiente sutil no header
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg,
+      rgba(255, 99, 0, 0.05) 0%,
+      rgba(255, 161, 0, 0.05) 100%
+    );
+    pointer-events: none;
+  }
+
+  .body--dark & {
+    background: var(--q-primary-background);
+    border-bottom-color: var(--q-secondary);
+    color: var(--q-primary-text);
+
+    &::before {
+      background: linear-gradient(135deg,
+        rgba(255, 161, 0, 0.1) 0%,
+        rgba(245, 180, 47, 0.1) 100%
+      );
+    }
+  }
+
+  // Título e elementos do header
+  .header-title {
+    color: var(--q-primary);
+    font-weight: 700;
+  }
+
+  .header-subtitle {
+    color: var(--q-secondary-text);
+  }
+
+  .header-icon {
+    color: var(--q-accent-1);
+  }
 }
 
 .stats-card {
-  background-color: #f9f9f9;
+  background: var(--q-primary-background);
+  border: 1px solid var(--q-accent-4);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+
+  // Gradiente de fundo sutil
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg,
+      rgba(255, 99, 0, 0.03) 0%,
+      rgba(255, 161, 0, 0.03) 100%
+    );
+    pointer-events: none;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(255, 99, 0, 0.1);
+    border-color: var(--q-primary);
+  }
+
+  .body--dark & {
+    background: var(--q-primary-background);
+    border-color: var(--q-accent-4);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+
+    &::before {
+      background: linear-gradient(135deg,
+        rgba(255, 161, 0, 0.08) 0%,
+        rgba(245, 180, 47, 0.08) 100%
+      );
+    }
+
+    &:hover {
+      box-shadow: 0 6px 16px rgba(255, 161, 0, 0.15);
+      border-color: var(--q-secondary);
+    }
+  }
+
+  // Elementos internos do stats card
+  .stat-number {
+    color: var(--q-primary);
+    font-weight: 700;
+  }
+
+  .stat-label {
+    color: var(--q-secondary-text);
+  }
+
+  .stat-icon {
+    color: var(--q-accent-2);
+  }
+
+  .stat-trend {
+    &.positive {
+      color: var(--q-positive);
+    }
+
+    &.negative {
+      color: var(--q-negative);
+    }
+
+    &.neutral {
+      color: var(--q-warning);
+    }
+  }
 }
 
-.points-list::-webkit-scrollbar {
-  width: 8px;
+// Lista de pontos com scrollbar customizada
+.points-list {
+  background: var(--q-secondary-background);
+  border-radius: 8px;
+
+  // Scrollbar customizada com cores do tema
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--q-primary-background);
+    border-radius: 4px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--q-primary);
+    border-radius: 4px;
+    transition: background 0.3s ease;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--q-accent-1);
+  }
+
+  .body--dark & {
+    &::-webkit-scrollbar-track {
+      background: var(--q-primary-background);
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: var(--q-secondary);
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+      background: var(--q-accent-3);
+    }
+  }
+
+  // Items da lista
+  .point-item {
+    background: var(--q-secondary-background);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    margin: 0.5rem 0;
+    transition: all 0.3s ease;
+
+    &:hover {
+      background: rgba(255, 99, 0, 0.05);
+      border-color: var(--q-primary);
+      transform: translateX(4px);
+    }
+
+    &.active {
+      background: linear-gradient(135deg,
+        rgba(255, 99, 0, 0.1) 0%,
+        rgba(242, 124, 52, 0.1) 100%
+      );
+      border-color: var(--q-primary);
+      box-shadow: 0 2px 8px rgba(255, 99, 0, 0.2);
+    }
+
+    .body--dark & {
+      &:hover {
+        background: rgba(255, 161, 0, 0.1);
+        border-color: var(--q-secondary);
+      }
+
+      &.active {
+        background: linear-gradient(135deg,
+          rgba(255, 161, 0, 0.15) 0%,
+          rgba(255, 133, 64, 0.15) 100%
+        );
+        border-color: var(--q-secondary);
+        box-shadow: 0 2px 8px rgba(255, 161, 0, 0.25);
+      }
+    }
+
+    .point-icon {
+      color: var(--q-primary);
+    }
+
+    .point-name {
+      color: var(--q-primary-text);
+      font-weight: 600;
+    }
+
+    .point-address {
+      color: var(--q-secondary-text);
+    }
+
+    .point-distance {
+      color: var(--q-accent-3);
+      font-weight: 500;
+    }
+  }
 }
 
-.points-list::-webkit-scrollbar-track {
-  background: #f1f1f1;
+// Controles do mapa
+.map-controls {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  .map-control-btn {
+    background: var(--q-secondary-background);
+    border: 1px solid var(--q-primary);
+    border-radius: 8px;
+    color: var(--q-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+
+    &:hover {
+      background: var(--q-primary);
+      color: white;
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(255, 99, 0, 0.3);
+    }
+
+    .body--dark & {
+      background: var(--q-secondary-background);
+      border-color: var(--q-secondary);
+      color: var(--q-secondary);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+
+      &:hover {
+        background: var(--q-secondary);
+        color: var(--q-night);
+        box-shadow: 0 4px 12px rgba(255, 161, 0, 0.4);
+      }
+    }
+  }
 }
 
-.points-list::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 4px;
+// Loading state
+.map-loading {
+  background: var(--q-secondary-background);
+  color: var(--q-secondary-text);
+
+  .loading-spinner {
+    color: var(--q-primary);
+  }
+
+  .body--dark & {
+    background: var(--q-secondary-background);
+    color: var(--q-secondary-text);
+
+    .loading-spinner {
+      color: var(--q-secondary);
+    }
+  }
 }
 
-.points-list::-webkit-scrollbar-thumb:hover {
-  background: #999;
+// Responsividade
+@media (max-width: 768px) {
+  .map-card {
+    border-radius: 8px;
+  }
+
+  .institution-header {
+    padding: 1rem;
+  }
+
+  .stats-card {
+    margin: 0.5rem 0;
+  }
+
+  .points-list {
+    max-height: 300px;
+  }
+
+  .map-controls {
+    top: 0.5rem;
+    right: 0.5rem;
+
+    .map-control-btn {
+      padding: 8px;
+    }
+  }
+}
+
+@media (max-width: 480px) {
+  .map-container {
+    border-radius: 4px;
+  }
+
+  .points-list {
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+  }
+
+  .point-item {
+    margin: 0.25rem 0;
+    padding: 0.75rem;
+  }
+}
+
+// Animações
+@keyframes mapFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.map-card {
+  animation: mapFadeIn 0.6s ease-out;
+}
+
+// Gradiente animado para loading
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.map-loading {
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 99, 0, 0.1),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  .body--dark &::before {
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 161, 0, 0.15),
+        transparent
+    );
+  }
 }
 </style>
-

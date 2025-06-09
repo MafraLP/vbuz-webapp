@@ -45,6 +45,7 @@ class RouteApiService extends BaseApiService {
    * @returns {Promise} Promessa com a rota atualizada
    */
   updateRoute(routeId, routeData) {
+    console.log('🔄 [API] Atualizando rota:', routeId, routeData);
     return this.put(`${routeId}`, routeData);
   }
 
