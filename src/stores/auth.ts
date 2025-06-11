@@ -5,7 +5,7 @@ export const useAuthStore = defineStore('auth', {
   state: () => ({
     user: null,
     token: localStorage.getItem('auth_token'),
-    selectedInstitutionId: localStorage.getItem('selected_institution_id'),
+    selectedInstitutionId: localStorage.getItem('selected_institution_id'), // Já estava correto
     loading: false,
     initialized: false // Flag para saber se já tentou carregar o usuário
   }),
@@ -150,7 +150,7 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
-    // Método para definir a instituição selecionada
+    // Método para definir a instituição selecionada - JÁ ARMAZENA NO LOCALSTORAGE
     setSelectedInstitution(institutionId) {
       if (institutionId) {
         this.selectedInstitutionId = institutionId.toString()
@@ -168,7 +168,7 @@ export const useAuthStore = defineStore('auth', {
       }
 
       const isValid = this.user.accessible_institutions.some(
-          inst => inst.id === parseInt(this.selectedInstitutionId)
+        inst => inst.id === parseInt(this.selectedInstitutionId)
       )
 
       if (!isValid) {
