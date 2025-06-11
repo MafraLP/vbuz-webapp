@@ -35,6 +35,7 @@ export default {
   },
 
   emits: [
+    'request-action',  // ✅ NOVO
     'notification-shown',
     'notification-dismissed',
     'error-logged'
@@ -51,6 +52,104 @@ export default {
   },
 
   methods: {
+    showManagerRequestStatus(managerType, action, status) {
+      const messages = {
+        'data.loadRoute': {
+          started: 'Carregando dados da rota...',
+          completed: 'Dados da rota carregados com sucesso',
+          failed: 'Erro ao carregar dados da rota'
+        },
+        'data.saveRoute': {
+          started: 'Salvando rota...',
+          completed: 'Rota salva com sucesso',
+          failed: 'Erro ao salvar rota'
+        },
+        'calculation.calculateRoute': {
+          started: 'Iniciando cálculo da rota...',
+          completed: 'Rota calculada com sucesso',
+          failed: 'Erro ao calcular rota'
+        }
+      }
+
+      const key = `${managerType}.${action}`
+      const message = messages[key]?.[status] || `${managerType}: ${action} - ${status}`
+
+      switch (status) {
+        case 'started':
+          return this.showInfo(message, { timeout: 2000 })
+
+        case 'completed':
+          return this.showSuccess(message, { timeout: 3000 })
+
+        case 'failed':
+          return this.showError(message, { timeout: 6000 })
+
+        default:
+          return this.showInfo(message, { timeout: 3000 })
+      }
+    },
+    showApiDisabledWarning() {
+      return this.showWarning(
+        'Modo simulação ativo - operações de API não serão executadas',
+        {
+          timeout: 5000,
+          actions: [
+            {
+              label: 'Entendi',
+              color: 'white',
+              handler: () => {}
+            }
+          ]
+        }
+      )
+    },
+    async handleManagerRequest(request) {
+      console.log('NotificationManager: Recebendo requisição:', request)
+
+      const { action, args, callback } = request
+
+      try {
+        let result = null
+
+        // NotificationManager gerencia apenas estado local
+        switch (action) {
+          case 'logError':
+            const [errorData] = args
+            result = this.logError('manager_error', errorData.message, errorData.error)
+            break
+
+          case 'showMessage':
+            const [message, type, options] = args
+            result = this.showNotification(message, type, options)
+            break
+
+          case 'clearAll':
+            result = this.dismissAllNotifications()
+            break
+
+          default:
+            console.log('NotificationManager: Ação não requer processamento especial:', action)
+            result = { success: true }
+        }
+
+        // Chamar callback de sucesso
+        if (callback) {
+          callback(null, result)
+        }
+
+        return result
+
+      } catch (error) {
+        console.error('NotificationManager: Erro ao processar requisição:', error)
+
+        // Chamar callback de erro
+        if (callback) {
+          callback(error, null)
+        }
+
+        throw error
+      }
+    },
     // ===========================================
     // MÉTODOS PÚBLICOS - NOTIFICAÇÕES GERAIS
     // ===========================================

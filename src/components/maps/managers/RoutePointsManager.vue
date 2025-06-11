@@ -43,7 +43,8 @@ export default {
     'point-moved',
     'points-reordered',
     'validation-error',
-    'error'
+    'error',
+    'request-action',  // ✅ NOVO
   ],
 
   data() {
@@ -118,6 +119,90 @@ export default {
   },
 
   methods: {
+    async handleManagerRequest(request) {
+      console.log('PointsManager: Recebendo requisição:', request)
+
+      const { action, args, callback } = request
+
+      try {
+        let result = null
+
+        // PointsManager gerencia apenas estado local
+        switch (action) {
+          case 'validatePoints':
+            result = this.validatePoints()
+            break
+
+          case 'addPoint':
+            const [pointData] = args
+            result = this.addPoint(pointData)
+            break
+
+          case 'removePoint':
+            const [index] = args
+            result = this.removePoint(index)
+            break
+
+          case 'updatePoint':
+            const [updateIndex, updates] = args
+            result = this.updatePoint(updateIndex, updates)
+            break
+
+          case 'clearAll':
+            this.clearAllPoints()
+            result = { success: true }
+            break
+
+          case 'optimizeOrder':
+            result = this.optimizePointOrder()
+            break
+
+          case 'undo':
+            result = this.undo()
+            break
+
+          default:
+            console.log('PointsManager: Ação processada localmente:', action)
+            result = { success: true, message: 'Ação processada localmente' }
+        }
+
+        // Chamar callback de sucesso
+        if (callback) {
+          callback(null, result)
+        }
+
+        return result
+
+      } catch (error) {
+        console.error('PointsManager: Erro ao processar requisição:', error)
+
+        // Chamar callback de erro
+        if (callback) {
+          callback(error, null)
+        }
+
+        throw error
+      }
+    },
+
+    syncFromParent(points) {
+      console.log('PointsManager: Sincronizando pontos do parent:', points?.length || 0)
+
+      if (Array.isArray(points)) {
+        // Sincronizar sem emitir eventos para evitar loops
+        this.internalPoints = points.map((point, index) => this.normalizePoint(point, index))
+
+        if (this.autoSequence) {
+          this.resequencePoints()
+        }
+
+        console.log('Pontos sincronizados com sucesso')
+        return true
+      }
+
+      return false
+    },
+
     // ===========================================
     // SINCRONIZAÇÃO COM PROPS
     // ===========================================

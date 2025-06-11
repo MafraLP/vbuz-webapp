@@ -5,12 +5,13 @@
       ref="dataManager"
       :route-id="routeId"
       :readonly="readonly"
-      :auto-load="true"
+      :auto-load="enableApiCalls"
       @route-loaded="onRouteLoaded"
       @route-updated="onRouteUpdated"
       @points-updated="onPointsUpdated"
       @segments-updated="onSegmentsUpdated"
       @loading-changed="onLoadingChanged"
+      @request-action="handleManagerRequest"
       @error="onDataError"
     />
 
@@ -33,7 +34,7 @@
       ref="calculationManager"
       :route-id="routeId"
       :route-points="routePoints"
-      :auto-calculate="autoCalculate"
+      :auto-calculate="autoCalculate && enableApiCalls"
       :institution-id="institutionId"
       :route-name="routeName"
       @calculation-started="onCalculationStarted"
@@ -42,6 +43,7 @@
       @calculation-failed="onCalculationFailed"
       @route-created="onRouteCreated"
       @route-updated="onCalculationRouteUpdated"
+      @request-action="handleManagerRequest"
       @error="onCalculationError"
     />
 
@@ -190,7 +192,24 @@ export default {
     NotificationBanners,
     RouteInfo
   },
-
+  emits: [
+    'map-ready',
+    'route-loaded',
+    'route-updated',
+    'route-created',
+    'route-deleted',
+    'calculation-started',
+    'calculation-completed',
+    'calculation-failed',
+    'point-selected',
+    'edit-route-requested',
+    'share-route-requested',
+    'route-id-changed',
+    'route-comparison-ready',
+    'user-location-found',
+    'user-location-error',
+    'manager-request'  // ✅ NOVO
+  ],
   props: {
     routeId: {
       type: Number,
@@ -223,6 +242,16 @@ export default {
     showDebugPanel: {
       type: Boolean,
       default: false
+    },
+    // ✅ NOVO: Controlar se deve fazer chamadas de API
+    enableApiCalls: {
+      type: Boolean,
+      default: true
+    },
+    // ✅ NOVO: Função para requisições de API (injetada pelo parent)
+    apiHandler: {
+      type: Function,
+      default: null
     }
   },
 
@@ -282,6 +311,7 @@ export default {
     }
   },
 
+
   watch: {
     routeId: {
       handler(newId) {
@@ -306,6 +336,70 @@ export default {
   },
 
   methods: {
+    async handleManagerRequest(request) {
+      console.log('IntegratedRouteManager: Recebendo requisição:', request)
+
+      const { managerType, action, args, callback } = request
+
+      try {
+        let result = null
+
+        if (this.enableApiCalls && this.apiHandler) {
+          // Usar handler injetado pelo parent
+          result = await this.apiHandler(managerType, action, ...args)
+        } else if (this.enableApiCalls) {
+          // Emitir evento para o parent
+          result = await this.emitManagerRequest(managerType, action, ...args)
+        } else {
+          // Modo sem API - apenas simular sucesso
+          console.log('Modo sem API ativo - simulando sucesso')
+          result = { success: true, message: 'Operação simulada' }
+        }
+
+        // Chamar callback de sucesso
+        if (callback) {
+          callback(null, result)
+        }
+
+        return result
+
+      } catch (error) {
+        console.error('IntegratedRouteManager: Erro ao processar requisição:', error)
+
+        // Chamar callback de erro
+        if (callback) {
+          callback(error, null)
+        }
+
+        // Re-lançar erro
+        throw error
+      }
+    },
+
+// 4. MÉTODO PARA EMITIR REQUISIÇÃO PARA PARENT
+    async emitManagerRequest(managerType, action, ...args) {
+      return new Promise((resolve, reject) => {
+        // Emitir evento para o parent com timeout
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timeout na requisição: ${managerType}.${action}`))
+        }, 30000) // 30s timeout
+
+        this.$emit('manager-request', {
+          managerType,
+          action,
+          args,
+          callback: (error, result) => {
+            clearTimeout(timeout)
+
+            if (error) {
+              reject(error)
+            } else {
+              resolve(result)
+            }
+          }
+        })
+      })
+    },
     // ===========================================
     // EVENTOS DO MAPA
     // ===========================================
@@ -523,15 +617,31 @@ export default {
     // ===========================================
     async calculateRoute() {
       try {
-        const success = await this.$refs.calculationManager?.calculateRoute()
-        if (success) {
-          console.log('Cálculo iniciado com sucesso')
+        if (!this.enableApiCalls) {
+          console.log('API desabilitada - simulando cálculo')
+          this.$refs.notificationManager?.showInfo('Modo simulação - cálculo não executado')
+          return false
         }
+
+        console.log('Calculando rota via nova arquitetura...')
+
+        if (this.apiHandler) {
+          // Usar handler direto
+          const result = await this.apiHandler('calculation', 'calculateRoute')
+          console.log('Cálculo via handler:', result)
+          return true
+        } else {
+          // Usar manager tradicional (fallback)
+          const success = await this.$refs.calculationManager?.calculateRoute()
+          return success
+        }
+
       } catch (error) {
-        console.error('Erro ao iniciar cálculo:', error)
+        console.error('Erro ao calcular rota:', error)
+        this.$refs.notificationManager?.showError(error.message)
+        return false
       }
     },
-
     async retryCalculation() {
       this.clearCalculationError()
       await this.calculateRoute()
@@ -548,26 +658,104 @@ export default {
       this.$refs.calculationManager?.clearCalculationError()
     },
 
+    setApiHandler(handler) {
+      console.log('Configurando handler de API:', typeof handler)
+      this.apiHandler = handler
+    },
+
+    setApiEnabled(enabled) {
+      console.log('Configurando API habilitada:', enabled)
+      this.enableApiCalls = enabled
+
+      // Notificar managers sobre mudança
+      if (this.$refs.dataManager) {
+        this.$refs.dataManager.autoLoad = enabled
+      }
+
+      if (this.$refs.calculationManager) {
+        this.$refs.calculationManager.autoCalculate = this.autoCalculate && enabled
+      }
+    },
+
     async refreshRoute() {
       try {
-        await this.$refs.dataManager?.refreshRoute()
+        if (!this.enableApiCalls) {
+          console.log('API desabilitada - não é possível atualizar')
+          this.$refs.notificationManager?.showInfo('Modo simulação - atualização não disponível')
+          return null
+        }
+
+        const targetRouteId = this.routeId || this.routeData?.id
+
+        if (!targetRouteId) {
+          console.warn('Nenhuma rota para atualizar')
+          return null
+        }
+
+        console.log('Atualizando rota via nova arquitetura...')
+
+        if (this.apiHandler) {
+          // Usar handler direto
+          const result = await this.apiHandler('data', 'loadRoute', targetRouteId)
+          console.log('Atualização via handler:', result)
+          return result
+        } else {
+          // Usar manager tradicional (fallback)
+          return await this.$refs.dataManager?.refreshRoute(targetRouteId)
+        }
+
       } catch (error) {
         console.error('Erro ao atualizar rota:', error)
+        this.$refs.notificationManager?.showError(error.message)
+        return null
       }
     },
 
     async saveRoute() {
       try {
-        const savedRoute = await this.$refs.dataManager?.saveRouteData()
-        if (savedRoute) {
+        if (!this.enableApiCalls) {
+          console.log('API desabilitada - simulando salvamento')
+          this.$refs.notificationManager?.showInfo('Modo simulação - salvamento não executado')
+          return null
+        }
+
+        console.log('Salvando rota via nova arquitetura...')
+
+        if (this.apiHandler) {
+          // Usar handler direto
+          const result = await this.apiHandler('data', 'saveRoute', {
+            name: this.routeData?.name,
+            points: this.routePoints
+          })
+
+          console.log('Salvamento via handler:', result)
+
           this.unsavedChanges = false
           this.$refs.notificationManager?.showTemplateNotification(
             'routeUpdated',
-            savedRoute.name
+            result.name || this.routeData?.name
           )
+
+          return result
+        } else {
+          // Usar manager tradicional (fallback)
+          const savedRoute = await this.$refs.dataManager?.saveRouteData()
+
+          if (savedRoute) {
+            this.unsavedChanges = false
+            this.$refs.notificationManager?.showTemplateNotification(
+              'routeUpdated',
+              savedRoute.name
+            )
+          }
+
+          return savedRoute
         }
+
       } catch (error) {
         console.error('Erro ao salvar rota:', error)
+        this.$refs.notificationManager?.showError(error.message)
+        throw error
       }
     },
 

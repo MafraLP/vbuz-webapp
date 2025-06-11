@@ -42,7 +42,8 @@ export default {
     'calculation-cancelled',
     'route-created',
     'route-updated',
-    'error'
+    'error',
+    'request-action',
   ],
 
   data() {
@@ -127,42 +128,30 @@ export default {
         return false
       }
 
-      console.log('=== INICIANDO CÁLCULO DE ROTA ===')
+      console.log('=== INICIANDO CÁLCULO DE ROTA VIA PARENT ===')
 
       try {
         this.clearCalculationError()
+        this.isCalculating = true
+        this.calculationStartTime = Date.now()
 
-        const currentRouteId = this.routeId || this.lastKnownRouteData?.id
+        // ✅ NOVO: Solicitar cálculo ao parent
+        const routeData = await this.requestParentAction('calculateRoute')
 
-        if (currentRouteId) {
-          console.log('>>> RECALCULANDO rota existente:', currentRouteId)
+        if (routeData) {
+          console.log('✅ Cálculo concluído via parent:', routeData.id)
+          this.lastKnownRouteData = routeData
 
-          // Verificar se há mudanças nos pontos
-          const hasChanges = await this.checkForRouteChanges(currentRouteId)
-
-          if (hasChanges) {
-            console.log('>>> ATUALIZANDO pontos da rota antes do recálculo')
-            await this.updateRoutePoints(currentRouteId)
-          }
-
-          await this.recalculateExistingRoute(currentRouteId)
-
-        } else if (this.routePoints.length >= 2) {
-          console.log('>>> CRIANDO nova rota com', this.routePoints.length, 'pontos')
-          const newRoute = await this.createNewRoute()
-
-          if (newRoute?.id) {
-            console.log('>>> Nova rota criada com ID:', newRoute.id)
-            this.$emit('route-created', newRoute)
-          }
-        } else {
-          throw new Error('Condições insuficientes para cálculo')
+          // Simular conclusão bem-sucedida
+          setTimeout(() => {
+            this.onCalculationCompleted()
+          }, 100)
         }
 
         return true
 
       } catch (error) {
-        console.error('Erro ao calcular rota:', error)
+        console.error('Erro ao calcular rota via parent:', error)
         this.handleCalculationError(error)
         return false
       }
@@ -199,70 +188,50 @@ export default {
         throw new Error('Nenhuma instituição encontrada para o usuário.')
       }
 
-      console.log('Criando nova rota...')
+      console.log('Criando nova rota via parent...')
 
-      // Mostrar status imediatamente
       this.isCalculating = true
       this.calculationStatus = {
-        status: 'calculating',
+        status: 'creating',
         progress_percentage: 0,
         message: 'Criando nova rota...'
       }
 
-      const routeData = {
-        name: this.routeName || 'Nova Rota',
-        institution_id: this.institutionId,
-        points: routeUtils.formatPointsForAPI(this.routePoints)
-      }
+      try {
+        // ✅ NOVO: Solicitar criação ao parent
+        const routeData = await this.requestParentAction('createRoute', {
+          name: this.routeName || 'Nova Rota',
+          institution_id: this.institutionId,
+          points: routeUtils.formatPointsForAPI(this.routePoints)
+        })
 
-      // 1. Criar rota
-      console.log('Enviando dados para criação:', routeData)
-      const createResponse = await routeApiService.createRoute(routeData)
-      this.lastKnownRouteData = createResponse.data.route
+        if (routeData) {
+          this.lastKnownRouteData = routeData
+          console.log('✅ Rota criada via parent:', routeData.id)
 
-      console.log('✅ Rota criada com sucesso!', this.lastKnownRouteData.id)
-
-      // 2. Verificar se precisa calcular segmentos
-      if (this.lastKnownRouteData.points?.length >= 2 &&
-        (!this.lastKnownRouteData.segments || this.lastKnownRouteData.segments.length === 0)) {
-
-        console.log('🔄 Iniciando cálculo dos segmentos para rota:', this.lastKnownRouteData.id)
-
-        this.calculationStatus = {
-          status: 'calculating',
-          progress_percentage: 20,
-          message: 'Calculando segmentos...'
+          // Se precisa calcular segmentos, solicitar cálculo
+          if (routeData.points?.length >= 2 && (!routeData.segments || routeData.segments.length === 0)) {
+            console.log('🔄 Solicitando cálculo dos segmentos...')
+            await this.requestParentAction('calculateRoute')
+          } else {
+            this.isCalculating = false
+            this.$emit('route-updated', this.lastKnownRouteData)
+          }
         }
 
-        const calculateResponse = await routeApiService.calculateRoute(this.lastKnownRouteData.id)
-        console.log('Resposta do cálculo:', calculateResponse.data)
+        return this.lastKnownRouteData
 
-        if (calculateResponse.data.status === 'calculating') {
-          console.log('Status: calculating - iniciando polling')
-          this.startCalculationPolling(this.lastKnownRouteData.id)
-          this.$emit('calculation-started', { routeId: this.lastKnownRouteData.id })
-        } else if (calculateResponse.data.status === 'completed') {
-          console.log('Status: completed imediatamente')
-          await this.fetchCompletedRouteData(this.lastKnownRouteData.id)
-        }
-      } else {
-        console.log('✅ Rota já possui segmentos ou não precisa calcular')
+      } catch (error) {
+        console.error('❌ Erro ao criar rota via parent:', error)
         this.isCalculating = false
-        this.$emit('route-updated', this.lastKnownRouteData)
+        this.calculationStatus = null
+        throw error
       }
-
-      Notify.create({
-        type: 'positive',
-        message: `Rota "${this.lastKnownRouteData.name}" criada com sucesso`,
-        position: 'top'
-      })
-
-      return this.lastKnownRouteData
     },
 
     async updateRoutePoints(routeId) {
       try {
-        console.log('📝 Atualizando pontos da rota:', routeId)
+        console.log('📝 Atualizando pontos via parent:', routeId)
 
         this.isCalculating = true
         this.calculationStatus = {
@@ -271,38 +240,62 @@ export default {
           message: 'Atualizando pontos da rota...'
         }
 
-        const updateData = {
+        // ✅ NOVO: Solicitar atualização ao parent
+        const updatedRoute = await this.requestParentAction('saveRoute', {
           points: routeUtils.formatPointsForAPI(this.routePoints)
+        })
+
+        if (updatedRoute) {
+          this.lastKnownRouteData = updatedRoute
+          console.log('✅ Pontos atualizados via parent')
         }
-
-        console.log('📤 Enviando pontos para atualização:', updateData.points.length)
-
-        const response = await routeApiService.updateRoute(routeId, updateData)
-        this.lastKnownRouteData = response.data.route || response.data
-
-        console.log('✅ Pontos atualizados com sucesso')
 
         return this.lastKnownRouteData
 
       } catch (error) {
-        console.error('❌ Erro ao atualizar pontos:', error)
-
+        console.error('❌ Erro ao atualizar pontos via parent:', error)
         this.isCalculating = false
         this.calculationStatus = null
+        throw error
+      }
+    },
 
-        let errorMessage = 'Falha ao atualizar pontos da rota'
+    async requestParentAction(action, ...args) {
+      return new Promise((resolve, reject) => {
+        // Timeout para evitar travamento
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timeout na requisição: calculation.${action}`))
+        }, 30000) // 30s timeout
 
-        if (error.response?.status === 404) {
-          errorMessage = 'Rota não encontrada'
-        } else if (error.response?.status === 403) {
-          errorMessage = 'Você não tem permissão para atualizar esta rota'
-        } else if (error.response?.status === 422) {
-          errorMessage = error.response.data?.message || 'Dados dos pontos são inválidos'
-        } else if (error.response?.data?.message) {
-          errorMessage = error.response.data.message
-        }
+        // ✅ NOVO: Emitir evento em vez de callback direto
+        this.$emit('request-action', {
+          managerType: 'calculation',
+          action,
+          args,
+          callback: (error, result) => {
+            clearTimeout(timeout)
 
-        throw new Error(errorMessage)
+            if (error) {
+              reject(error)
+            } else {
+              resolve(result)
+            }
+          }
+        })
+      })
+    },
+
+    onCalculationProgressFromPage(status) {
+      console.log('Recebendo progresso do parent:', status)
+
+      this.calculationStatus = status
+      this.$emit('calculation-progress', this.calculationStatus)
+
+      // Verificar se terminou
+      if (status.status === 'completed') {
+        this.onCalculationCompleted()
+      } else if (status.status === 'error' || status.status === 'failed') {
+        this.onCalculationFailed(status.error_message)
       }
     },
 
@@ -390,153 +383,6 @@ export default {
       } catch (error) {
         console.warn('Erro no auto-cálculo:', error)
       }
-    },
-
-    // ===========================================
-    // POLLING DE STATUS
-    // ===========================================
-    async startCalculationPolling(routeId) {
-      console.log('=== INICIANDO POLLING SEQUENCIAL ===')
-
-      this.stopCalculationPolling()
-
-      this.isPollingActive = true
-      this.pollingInProgress = false
-      this.calculationStartTime = Date.now()
-      this.pollingCount = 0
-      this.consecutiveErrors = 0
-
-      if (!this.calculationStatus) {
-        this.calculationStatus = {
-          status: 'calculating',
-          progress_percentage: 0,
-          message: 'Verificando status...'
-        }
-      }
-
-      console.log('Polling configurado - iniciando primeira chamada...')
-      await this.performSequentialPoll(routeId)
-    },
-
-    async performSequentialPoll(routeId) {
-      if (!this.isPollingActive || this.pollingInProgress) {
-        console.log('⚠️ Polling não ativo ou já em andamento')
-        return
-      }
-
-      if (this.pollingCount > this.maxPollingAttempts) {
-        console.warn('⚠️ Limite de polling atingido')
-        this.stopCalculationPolling()
-        this.calculationError = 'Timeout no cálculo da rota. Tente novamente.'
-        return
-      }
-
-      this.pollingInProgress = true
-      this.pollingCount++
-
-      console.log(`🔍 [${this.pollingCount}] Verificando status da rota ${routeId}...`)
-
-      try {
-        const response = await routeApiService.getCalculationStatus(routeId)
-        const status = response.data.status || response.data
-
-        console.log(`📊 [${this.pollingCount}] Status recebido:`, {
-          status: status.status,
-          progress: status.progress_percentage,
-          completed: status.calculated_segments,
-          total: status.total_segments
-        })
-
-        this.consecutiveErrors = 0
-
-        // Corrigir dados do status
-        const correctedStatus = this.correctStatusData(status)
-
-        this.calculationStatus = {
-          ...correctedStatus,
-          message: this.getImprovedStatusMessage(correctedStatus)
-        }
-
-        this.$emit('calculation-progress', this.calculationStatus)
-
-        // Verificar condições de parada
-        if (correctedStatus.status === 'completed') {
-          console.log('✅ [COMPLETED] Cálculo concluído!')
-          this.stopCalculationPolling()
-
-          setTimeout(async () => {
-            await this.fetchCompletedRouteData(routeId)
-          }, 300)
-
-          return
-
-        } else if (correctedStatus.status === 'error' || correctedStatus.status === 'failed') {
-          console.log('❌ [ERROR] Cálculo falhou:', correctedStatus.error_message)
-          this.stopCalculationPolling()
-          this.onCalculationFailed(correctedStatus.error_message)
-          return
-
-        } else {
-          // Ainda calculando - agendar próxima chamada
-          const nextInterval = this.getPollingInterval()
-          console.log(`⏳ Próxima verificação em ${nextInterval}ms`)
-          this.scheduleNextPoll(routeId)
-        }
-
-      } catch (error) {
-        console.error(`❌ [${this.pollingCount}] Erro na requisição:`, error.message)
-
-        this.consecutiveErrors++
-
-        if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-          console.error(`❌ Muitos erros consecutivos, parando polling`)
-          this.stopCalculationPolling()
-          this.calculationError = 'Múltiplos erros ao verificar status. Tente novamente.'
-          return
-        }
-
-        console.log(`🔄 Erro ${this.consecutiveErrors}/${this.maxConsecutiveErrors}, tentando novamente...`)
-        this.scheduleNextPoll(routeId)
-
-      } finally {
-        this.pollingInProgress = false
-      }
-    },
-
-    scheduleNextPoll(routeId) {
-      if (!this.isPollingActive) {
-        console.log('⚠️ Polling não está mais ativo')
-        return
-      }
-
-      const interval = this.getPollingInterval()
-
-      this.pollingTimeoutId = setTimeout(async () => {
-        if (this.isPollingActive) {
-          await this.performSequentialPoll(routeId)
-        }
-      }, interval)
-    },
-
-    getPollingInterval() {
-      if (this.pollingCount <= 3) return 1000    // Primeiros 3: 1s
-      if (this.pollingCount <= 10) return 2000   // Próximos 7: 2s
-      if (this.pollingCount <= 30) return 3000   // Próximos 20: 3s
-      return 5000 // Resto: 5s
-    },
-
-    stopCalculationPolling() {
-      console.log('🛑 Parando polling sequencial...')
-
-      this.isPollingActive = false
-      this.pollingInProgress = false
-
-      if (this.pollingTimeoutId) {
-        clearTimeout(this.pollingTimeoutId)
-        this.pollingTimeoutId = null
-      }
-
-      console.log('✅ Polling parado completamente')
     },
 
     correctStatusData(status) {
@@ -635,8 +481,6 @@ export default {
     onCalculationCompleted() {
       console.log('=== ✅ FINALIZANDO CÁLCULO COMPLETO ===')
 
-      this.stopCalculationPolling()
-
       const calculationTime = this.calculationStartTime
         ? Math.round((Date.now() - this.calculationStartTime) / 1000) : 0
 
@@ -653,20 +497,13 @@ export default {
 
       this.$emit('route-updated', this.lastKnownRouteData)
 
-      Notify.create({
-        type: 'positive',
-        message: `🎉 Rota calculada em ${calculationTime}s!`,
-        position: 'top',
-        timeout: 3000
-      })
-
+      // ❌ REMOVER: Notify.create(...) - Deixar para o parent
       console.log('=== ✅ PROCESSO FINALIZADO ===')
     },
 
+
     onCalculationFailed(errorMessage) {
       console.log('=== ❌ CÁLCULO FALHOU ===')
-
-      this.stopCalculationPolling()
 
       const calculationTime = this.calculationStartTime
         ? Math.round((Date.now() - this.calculationStartTime) / 1000) : 0
@@ -683,12 +520,7 @@ export default {
         calculationTime
       })
 
-      Notify.create({
-        type: 'negative',
-        message: 'Erro ao calcular rota: ' + this.calculationError,
-        position: 'top',
-        timeout: 6000
-      })
+      // ❌ REMOVER: Notify.create(...) - Deixar para o parent
     },
 
     handleCalculationError(error) {

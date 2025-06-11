@@ -5,7 +5,7 @@
 </template>
 
 <script>
-import { routeApiService, routeUtils } from 'src/services/api/route/RouteApiService.js'
+import { routeUtils } from 'src/services/api/route/RouteApiService.js'
 import { Notify } from 'quasar'
 
 export default {
@@ -33,7 +33,8 @@ export default {
     'points-updated',
     'segments-updated',
     'loading-changed',
-    'error'
+    'error',
+    'request-action',  // ✅ NOVO
   ],
 
   data() {
@@ -119,45 +120,27 @@ export default {
       try {
         this.setLoading(true, `Carregando rota #${routeId}...`)
 
-        // Verificar cache primeiro
-        const cachedData = this.dataCache.get(routeId)
-        if (cachedData && Date.now() - cachedData.timestamp < 30000) { // Cache de 30s
-          console.log('Usando dados do cache para rota:', routeId)
-          this.setRouteData(cachedData.data)
-          this.setLoading(false)
-          return this.routeData
+        // ✅ NOVO: Solicitar ao parent em vez de chamar API diretamente
+        const routeData = await this.requestParentAction('loadRoute', routeId)
+
+        if (routeData) {
+          this.setRouteData(routeData)
+          this.lastLoadedRouteId = routeId
+          this.$emit('route-loaded', this.routeData)
+
+          console.log('Rota carregada via parent:', {
+            id: this.routeData.id,
+            name: this.routeData.name,
+            points: this.routePoints.length,
+            segments: this.routeSegments.length,
+            status: this.routeData.calculation_status
+          })
         }
-
-        console.log('Carregando rota do servidor:', routeId)
-
-        const response = this.readonly
-          ? await routeApiService.getPublicRoute(routeId)
-          : await routeApiService.getRoute(routeId)
-
-        const routeData = response.data.route
-        this.setRouteData(routeData)
-
-        // Adicionar ao cache
-        this.dataCache.set(routeId, {
-          data: routeData,
-          timestamp: Date.now()
-        })
-
-        this.lastLoadedRouteId = routeId
-        this.$emit('route-loaded', this.routeData)
-
-        console.log('Rota carregada com sucesso:', {
-          id: this.routeData.id,
-          name: this.routeData.name,
-          points: this.routePoints.length,
-          segments: this.routeSegments.length,
-          status: this.routeData.calculation_status
-        })
 
         return this.routeData
 
       } catch (error) {
-        console.error('Erro ao carregar rota:', error)
+        console.error('Erro ao carregar rota via parent:', error)
         this.handleError('route_load', 'Não foi possível carregar a rota', error)
         return null
       } finally {
@@ -316,30 +299,22 @@ export default {
           points: routeUtils.formatPointsForAPI(this.routePoints)
         }
 
-        console.log('Salvando dados da rota:', targetRouteId, updateData)
+        console.log('Salvando dados via parent:', targetRouteId, updateData)
 
-        const response = await routeApiService.updateRoute(targetRouteId, updateData)
-        const updatedRoute = response.data.route || response.data
+        // ✅ NOVO: Solicitar ao parent em vez de chamar API diretamente
+        const updatedRoute = await this.requestParentAction('saveRoute', updateData)
 
-        this.setRouteData(updatedRoute)
+        if (updatedRoute) {
+          this.setRouteData(updatedRoute)
 
-        // Atualizar cache
-        this.dataCache.set(targetRouteId, {
-          data: updatedRoute,
-          timestamp: Date.now()
-        })
-
-        Notify.create({
-          type: 'positive',
-          message: 'Rota salva com sucesso',
-          position: 'top',
-          timeout: 2000
-        })
+          // Não exibir notificação aqui - deixar para o parent
+          console.log('Rota salva via parent com sucesso')
+        }
 
         return updatedRoute
 
       } catch (error) {
-        console.error('Erro ao salvar rota:', error)
+        console.error('Erro ao salvar rota via parent:', error)
         this.handleError('route_save', 'Não foi possível salvar a rota', error)
         throw error
       } finally {
@@ -357,30 +332,51 @@ export default {
       try {
         this.setLoading(true, 'Deletando rota...')
 
-        await routeApiService.deleteRoute(targetRouteId)
+        // ✅ NOVO: Solicitar ao parent em vez de chamar API diretamente
+        const result = await this.requestParentAction('deleteRoute', targetRouteId)
 
-        // Limpar cache
-        this.dataCache.delete(targetRouteId)
+        if (result) {
+          // Limpar dados locais
+          this.clearRoute()
 
-        // Limpar dados locais
-        this.clearRoute()
-
-        Notify.create({
-          type: 'positive',
-          message: 'Rota deletada com sucesso',
-          position: 'top',
-          timeout: 2000
-        })
+          // Não exibir notificação aqui - deixar para o parent
+          console.log('Rota deletada via parent com sucesso')
+        }
 
         return true
 
       } catch (error) {
-        console.error('Erro ao deletar rota:', error)
+        console.error('Erro ao deletar rota via parent:', error)
         this.handleError('route_delete', 'Não foi possível deletar a rota', error)
         throw error
       } finally {
         this.setLoading(false)
       }
+    },
+
+    async requestParentAction(action, ...args) {
+      return new Promise((resolve, reject) => {
+        // Timeout para evitar travamento
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timeout na requisição: data.${action}`))
+        }, 30000) // 30s timeout
+
+        // ✅ NOVO: Emitir evento em vez de callback direto
+        this.$emit('request-action', {
+          managerType: 'data',
+          action,
+          args,
+          callback: (error, result) => {
+            clearTimeout(timeout)
+
+            if (error) {
+              reject(error)
+            } else {
+              resolve(result)
+            }
+          }
+        })
+      })
     },
 
     // ===========================================

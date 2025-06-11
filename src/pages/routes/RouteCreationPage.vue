@@ -49,6 +49,10 @@
           @update:route-details="handleRouteDetailsUpdate"
           @route-created="onRouteCreatedFromMap"
           @route-loaded="onRouteLoadedFromMap"
+          @calculation-started="onCalculationStartedFromMap"
+          @calculation-completed="onCalculationCompletedFromMap"
+          @calculation-failed="onCalculationFailedFromMap"
+          @manager-request="handleManagerRequestFromMapStep"
           @next="validateAndContinue"
           @back="step = 1"
         />
@@ -118,9 +122,43 @@ export default defineComponent({
       default: null
     }
   },
+  mounted() {
+    // Inicializar routeId baseado na URL
+    if (this.route.params.id && this.route.params.id !== 'new') {
+      const id = this.route.params.id
+      if (this.validateRouteId(id)) {
+        this.updateRouteId(parseInt(id))
+        this.isEditMode = true
+      } else {
+        console.warn('Route ID inválido na URL:', id)
+        this.updateRouteId(null)
+        this.isEditMode = false
+      }
+    } else {
+      // Modo de criação
+      this.updateRouteId(null)
+      this.isEditMode = false
+    }
 
+    // Debug em desenvolvimento
+    if (process.env.NODE_ENV === 'development') {
+      window.debugRouteState = () => this.debugRouteState()
+      window.forceCreate = () => this.forceCreateNewRoute()
+      console.log('💡 Debug commands available:')
+      console.log('  - window.debugRouteState()')
+      console.log('  - window.forceCreate()')
+    }
+
+    console.log('✅ RouteCreationPage inicializado')
+  },
+  beforeUnmount() {
+    this.cancelPendingRequests()
+  },
   data() {
     return {
+      pendingRequests: new Map(),
+      requestIdCounter: 0,
+      isCancelling: false,
       step: 1,
       routeId: null,
       isEditMode: false,
@@ -140,7 +178,10 @@ export default defineComponent({
           sat: false,
           sun: false
         },
-        allowedCards: []
+        // Novos campos para sistema de permissões
+        accessType: 'public', // 'public' ou 'restricted'
+        allowedPermissions: [], // Array de IDs de permissões
+        isPublic: true // Se a rota é visível publicamente
       },
       routePoints: [],
       routeDetails: {
@@ -162,6 +203,17 @@ export default defineComponent({
         }
       },
       immediate: true
+    },
+    routeId: {
+      handler(newId, oldId) {
+        console.log('RouteId mudou:', oldId, '->', newId)
+
+        // Validar novo ID
+        if (newId && !this.validateRouteId(newId)) {
+          console.warn('RouteId inválido detectado:', newId)
+          this.routeId = null
+        }
+      }
     }
   },
 
@@ -192,6 +244,121 @@ export default defineComponent({
   },
 
   methods: {
+    getManagerRequestsStatus() {
+      return {
+        pendingCount: this.pendingRequests.size,
+        isCancelling: this.isCancelling,
+        pendingRequests: Array.from(this.pendingRequests.entries()).map(([id, req]) => ({
+          id,
+          ...req,
+          duration: Date.now() - req.startTime
+        }))
+      }
+    },
+    // 2. ADICIONAR NOVOS HANDLERS DE EVENTOS
+    onCalculationStartedFromMap(data) {
+      console.log('Cálculo iniciado no mapa:', data)
+
+      this.quasar.notify({
+        type: 'info',
+        message: 'Calculando rota...',
+        timeout: 2000
+      })
+    },
+
+    onCalculationCompletedFromMap(data) {
+      console.log('Cálculo concluído no mapa:', data)
+
+      // Atualizar dados locais se necessário
+      if (data.routeData) {
+        this.handleRouteDetailsUpdate({
+          totalDistance: data.routeData.total_distance || 0,
+          totalDuration: data.routeData.total_duration || 0
+        })
+
+        if (data.routeData.segments) {
+          this.handleRouteDrawUpdate(data.routeData.segments)
+        }
+      }
+
+      this.quasar.notify({
+        type: 'positive',
+        message: `Rota calculada em ${data.calculationTime || 0}s!`,
+        timeout: 3000
+      })
+    },
+
+    onCalculationFailedFromMap(data) {
+      console.log('Cálculo falhou no mapa:', data.error)
+
+      this.quasar.notify({
+        type: 'negative',
+        message: `Erro ao calcular rota: ${data.error}`,
+        timeout: 5000
+      })
+    },
+
+    async handleManagerRequestFromMapStep(request) {
+      console.log('RouteCreationPage: Recebendo requisição via emit:', request)
+
+      const { managerType, action, args, callback } = request
+
+      try {
+        // Usar o método handleManagerRequest existente
+        const result = await this.handleManagerRequest(managerType, action, ...args)
+
+        console.log('RouteCreationPage: Requisição processada via emit:', result)
+
+        // Chamar callback de sucesso
+        if (callback) {
+          callback(null, result)
+        }
+
+        return result
+
+      } catch (error) {
+        console.error('RouteCreationPage: Erro ao processar requisição via emit:', error)
+
+        // Chamar callback de erro
+        if (callback) {
+          callback(error, null)
+        }
+
+        // Não re-lançar erro aqui para evitar unhandled promise rejection
+      }
+    },
+
+// 3. ADICIONAR MÉTODO PARA COMUNICAR COM MAPSTEP
+    async callMapStepMethod(methodName, ...args) {
+      if (this.$refs.mapStep && typeof this.$refs.mapStep[methodName] === 'function') {
+        try {
+          return await this.$refs.mapStep[methodName](...args)
+        } catch (error) {
+          console.error(`Erro ao chamar ${methodName} no MapStep:`, error)
+          throw error
+        }
+      } else {
+        throw new Error(`Método ${methodName} não encontrado no MapStep`)
+      }
+    },
+
+// 4. ADICIONAR MÉTODOS PARA NOTIFICAR MAPSTEP
+    notifyMapStepRouteLoaded(routeData) {
+      console.log('Notificando MapStep sobre rota carregada:', routeData.id)
+
+      if (this.$refs.mapStep && typeof this.$refs.mapStep.onRouteLoadedFromPage === 'function') {
+        this.$refs.mapStep.onRouteLoadedFromPage(routeData)
+      }
+    },
+
+    notifyMapStepCalculationProgress(status) {
+      console.log('Notificando MapStep sobre progresso:', status)
+
+      if (this.$refs.mapStep && typeof this.$refs.mapStep.onCalculationProgressFromPage === 'function') {
+        this.$refs.mapStep.onCalculationProgressFromPage(status)
+      }
+    },
+
     initializeComponent() {
       // Verificar se estamos editando via prop
       if (this.editRoute) {
@@ -220,7 +387,10 @@ export default defineComponent({
         startTime: routeData.schedule_data?.start_time || '07:00',
         endTime: routeData.schedule_data?.end_time || '19:00',
         days: this.parseDaysFromBackend(routeData.schedule_data?.days),
-        allowedCards: this.parseCardsFromBackend(routeData.permissions || [])
+        // Novos campos do sistema de permissões
+        accessType: this.determineAccessType(routeData),
+        allowedPermissions: this.parsePermissionsFromBackend(routeData.permissions || []),
+        isPublic: routeData.is_public !== undefined ? routeData.is_public : true
       })
 
       // Carregar pontos se disponíveis
@@ -268,10 +438,11 @@ export default defineComponent({
         startTime: this.sanitizeString(routeInfo.startTime || '07:00'),
         endTime: this.sanitizeString(routeInfo.endTime || '19:00'),
         days: routeInfo.days || {},
-        allowedCards: Array.isArray(routeInfo.allowedCards) ? routeInfo.allowedCards : []
+        accessType: routeInfo.accessType || 'public',
+        allowedPermissions: Array.isArray(routeInfo.allowedPermissions) ? routeInfo.allowedPermissions : [],
+        isPublic: routeInfo.isPublic !== undefined ? routeInfo.isPublic : true
       }
     },
-
 
     // ===========================================
     // HANDLERS DE EVENTOS DOS STEPS
@@ -316,7 +487,6 @@ export default defineComponent({
         console.log('RouteId atualizado para:', this.routeId)
 
         // *** NÃO REDIRECIONAR - Manter na mesma URL ***
-        // NÃO FAZER: this.router.replace(`/routes/create/${routeData.id}`)
         console.log('Permanecendo na URL atual do wizard')
       }
 
@@ -336,7 +506,9 @@ export default defineComponent({
         startTime: routeData.schedule_data?.start_time || '07:00',
         endTime: routeData.schedule_data?.end_time || '19:00',
         days: this.parseDaysFromBackend(routeData.schedule_data?.days),
-        allowedCards: this.parseCardsFromBackend(routeData.permissions || [])
+        accessType: this.determineAccessType(routeData),
+        allowedPermissions: this.parsePermissionsFromBackend(routeData.permissions || []),
+        isPublic: routeData.is_public !== undefined ? routeData.is_public : true
       })
 
       // Os pontos, detalhes e segmentos já são gerenciados pelo RouteMapStep
@@ -378,24 +550,35 @@ export default defineComponent({
       }
     },
 
-    parseCardsFromBackend(permissions) {
+    parsePermissionsFromBackend(permissions) {
       if (!Array.isArray(permissions)) return []
 
-      const cardMap = {
-        'student': { label: 'Estudante', value: 'student' },
-        'employee': { label: 'Funcionário', value: 'employee' },
-        'regular': { label: 'Comum', value: 'regular' },
-        'work': { label: 'Vale Transporte', value: 'work' },
-        'senior': { label: 'Idoso', value: 'senior' },
-        'disability': { label: 'PCD', value: 'disability' }
-      }
-
       return permissions
-        .map(p => {
-          const permission = typeof p === 'string' ? p : p.value || p.type
-          return cardMap[permission] || { label: permission, value: permission }
+        .map(permission => {
+          // Se é um objeto com ID
+          if (permission && typeof permission === 'object' && permission.id) {
+            return permission.id
+          }
+          // Se é um número direto
+          if (typeof permission === 'number') {
+            return permission
+          }
+          // Se é string que pode ser convertida
+          if (typeof permission === 'string' && !isNaN(parseInt(permission))) {
+            return parseInt(permission)
+          }
+          return null
         })
-        .filter(Boolean)
+        .filter(id => id !== null && id > 0)
+    },
+
+    determineAccessType(routeData) {
+      // Se tem permissões definidas, é restrita
+      if (routeData.permissions && Array.isArray(routeData.permissions) && routeData.permissions.length > 0) {
+        return 'restricted'
+      }
+      // Caso contrário, é pública
+      return 'public'
     },
 
     // ===========================================
@@ -441,11 +624,6 @@ export default defineComponent({
     // ===========================================
     // SALVAMENTO FINAL
     // ===========================================
-// ==========================================
-// MÉTODO finalSaveRoute() CORRIGIDO
-// Resolve duplicação baseando-se na existência de routeId
-// ==========================================
-
     async finalSaveRoute() {
       if (this.isSaving) return
 
@@ -576,34 +754,149 @@ export default defineComponent({
       }
     },
 
-// ==========================================
-// MÉTODOS AUXILIARES
-// ==========================================
-
+    // ==========================================
+    // MÉTODOS AUXILIARES
+    // ==========================================
     prepareRouteDataForAPI() {
-      return {
+      const data = {
         name: this.sanitizeString(this.routeInfo.name),
         description: this.sanitizeString(this.routeInfo.description),
         institution_id: this.institutionId,
-        schedule_type: 'daily',
-        schedule_data: {
-          start_time: this.routeInfo.startTime,
-          end_time: this.routeInfo.endTime,
-          days: this.getDaysArray(this.routeInfo.days)
-        },
-        permissions: (this.routeInfo.allowedCards || []).map(card =>
-          typeof card === 'string' ? card : card.value
-        ),
-        is_public: true,
+
+        schedule_type: this.routeInfo.scheduleType || 'daily',
+        schedule_data: this.routeInfo.schedule_data || this.buildScheduleData(),
+
+        // 🎫 CAMPOS DE PERMISSÃO
+        permissions: this.routeInfo.accessType === 'restricted'
+          ? (this.routeInfo.allowedPermissions || [])
+          : [],
+        is_public: this.routeInfo.isPublic !== undefined ? this.routeInfo.isPublic : true,
+
+        // 📍 PONTOS DA ROTA - ESTRUTURA CORRIGIDA
         points: this.routePoints.map((p, index) => ({
-          // 🔥 Para pontos existentes, preservar ID se válido
-          id: this.isValidPointId(p.id) ? p.id : undefined,
           name: this.sanitizeString(p.name),
+          description: p.description ? this.sanitizeString(p.description) : null,
           latitude: Number(p.lat || p.latitude),
           longitude: Number(p.lng || p.longitude),
-          sequence: Number(p.sequence !== undefined ? p.sequence : index)
+          sequence: Number(p.sequence !== undefined ? p.sequence : index),
+          // Campos opcionais para o ponto
+          type: p.type || 'stop',
+          stop_duration: p.stop_duration || null,
+          is_optional: p.is_optional || false,
+          route_specific_notes: p.route_specific_notes ? this.sanitizeString(p.route_specific_notes) : null,
+          arrival_time: p.arrival_time || null,
+          departure_time: p.departure_time || null,
+          // Características do ponto físico
+          has_shelter: p.has_shelter || false,
+          is_accessible: p.is_accessible || false,
+          has_lighting: p.has_lighting || false,
+          has_security: p.has_security || false,
+          capacity: p.capacity || null,
+          notes: p.notes ? this.sanitizeString(p.notes) : null
         })),
-        segments: this.routeDraw.filter(Boolean)
+
+        // 🗺️ SEGMENTOS DA ROTA (se houver)
+        segments: this.routeDraw.filter(Boolean).map((segment, index) => ({
+          sequence: segment.sequence !== undefined ? segment.sequence : index,
+          distance: segment.distance || 0,
+          duration: segment.duration || 0,
+          geometry: segment.geometry || null,
+          profile: segment.profile || 'driving-car'
+        }))
+      }
+      if (this.validateRouteId(this.routeId)) {
+        data.route_id = parseInt(this.routeId)
+      }
+      return data
+    },
+
+    determineOperation() {
+      // Se temos routeId válido = UPDATE, senão = CREATE
+      return this.validateRouteId(this.routeId) ? 'UPDATE' : 'CREATE'
+    },
+
+
+    buildScheduleData() {
+      // Se já tem schedule_data estruturado, usar
+      if (this.routeInfo.schedule_data && typeof this.routeInfo.schedule_data === 'object') {
+        return this.routeInfo.schedule_data
+      }
+
+      // Construir baseado no tipo de agendamento
+      const scheduleType = this.routeInfo.scheduleType || 'daily'
+
+      switch (scheduleType) {
+        case 'daily':
+        case 'weekly':
+          return {
+            start_time: this.routeInfo.startTime || '07:00',
+            end_time: this.routeInfo.endTime || '19:00',
+            days: this.getDaysArray(this.routeInfo.days)
+          }
+
+        case 'custom':
+          return {
+            description: this.routeInfo.customDescription || 'Horários flexíveis conforme necessidade',
+            custom_config: true
+          }
+
+        case 'monthly':
+          return {
+            description: 'Agendamento mensal',
+            monthly_config: true
+          }
+
+        default:
+          // Fallback para daily
+          return {
+            start_time: '07:00',
+            end_time: '19:00',
+            days: [1, 2, 3, 4, 5] // Segunda a sexta
+          }
+      }
+    },
+
+    getDaysArray(days) {
+      if (!days || typeof days !== 'object') return [1, 2, 3, 4, 5]
+
+      // Converter objeto de dias para array de números (1-7)
+      const result = []
+      if (days.mon) result.push(1)
+      if (days.tue) result.push(2)
+      if (days.wed) result.push(3)
+      if (days.thu) result.push(4)
+      if (days.fri) result.push(5)
+      if (days.sat) result.push(6)
+      if (days.sun) result.push(7)
+
+      return result.length > 0 ? result : [1, 2, 3, 4, 5] // Fallback para dias úteis
+    },
+
+    // Método para inicializar routeInfo com valores padrão corretos
+    initializeRouteInfo() {
+      if (!this.routeInfo.scheduleType) {
+        this.routeInfo.scheduleType = 'daily'
+      }
+      if (!this.routeInfo.accessType) {
+        this.routeInfo.accessType = 'public'
+      }
+      if (!this.routeInfo.allowedPermissions) {
+        this.routeInfo.allowedPermissions = []
+      }
+      if (this.routeInfo.isPublic === undefined) {
+        this.routeInfo.isPublic = true
+      }
+      if (!this.routeInfo.days) {
+        this.routeInfo.days = {
+          mon: true, tue: true, wed: true, thu: true,
+          fri: true, sat: false, sun: false
+        }
+      }
+      if (!this.routeInfo.startTime) {
+        this.routeInfo.startTime = '07:00'
+      }
+      if (!this.routeInfo.endTime) {
+        this.routeInfo.endTime = '19:00'
       }
     },
 
@@ -640,17 +933,25 @@ export default defineComponent({
       })
     },
 
-// ==========================================
-// MÉTODOS DE VERIFICAÇÃO ADICIONAL
-// ==========================================
-
-// Método para garantir consistência antes do salvamento
+    // ==========================================
+    // MÉTODOS DE VERIFICAÇÃO ADICIONAL
+    // ==========================================
     validateBeforeSave() {
       const errors = []
 
       // Verificar dados básicos
       if (!this.routeInfo.name?.trim()) {
         errors.push('Nome da rota é obrigatório')
+      }
+
+      // Verificar tipo de agendamento
+      if (!this.routeInfo.scheduleType) {
+        errors.push('Tipo de agendamento é obrigatório')
+      }
+
+      // Verificar schedule_data
+      if (this.routeInfo.scheduleType === 'custom' && !this.routeInfo.customDescription?.trim()) {
+        errors.push('Descrição é obrigatória para agendamento personalizado')
       }
 
       if (this.routePoints.length < 2) {
@@ -666,13 +967,17 @@ export default defineComponent({
         errors.push('ID da rota não encontrado para atualização')
       }
 
+      // Validar permissões para rotas restritas
+      if (this.routeInfo.accessType === 'restricted' && (!this.routeInfo.allowedPermissions || this.routeInfo.allowedPermissions.length === 0)) {
+        errors.push('Selecione pelo menos uma permissão para rota restrita')
+      }
+
       return {
         valid: errors.length === 0,
         errors
       }
     },
 
-// Método para sincronizar estado antes de salvar
     async syncStateBeforeSave() {
       console.log('Sincronizando estado antes do salvamento...')
 
@@ -699,27 +1004,138 @@ export default defineComponent({
       }
     },
 
-    getDaysArray(days) {
-      if (!days || typeof days !== 'object') return [1, 2, 3, 4, 5]
+    async forceCreateNewRoute() {
+      console.log('🆕 Forçando criação de nova rota...')
 
-      // Converter objeto de dias para array de números (1-7)
-      const result = []
-      if (days.mon) result.push(1)
-      if (days.tue) result.push(2)
-      if (days.wed) result.push(3)
-      if (days.thu) result.push(4)
-      if (days.fri) result.push(5)
-      if (days.sat) result.push(6)
-      if (days.sun) result.push(7)
+      try {
+        const routeData = this.prepareRouteDataForAPI()
+        const newRoute = await this.apiCreateRoute(routeData)
 
-      return result.length > 0 ? result : [1, 2, 3, 4, 5] // Fallback para dias úteis
+        this.updateRouteId(newRoute.id)
+
+        this.quasar.notify({
+          type: 'positive',
+          message: `Nova rota criada: ${newRoute.name}`,
+          timeout: 3000
+        })
+
+        return newRoute
+
+      } catch (error) {
+        console.error('Erro ao forçar criação:', error)
+        throw error
+      }
     },
+
+    async finalSaveRoute() {
+      if (this.isSaving) return
+
+      this.isSaving = true
+
+      try {
+        console.log('=== SALVAMENTO FINAL ===')
+
+        // Verificar instituição
+        if (!this.institutionId) {
+          throw new Error('Nenhuma instituição encontrada para o usuário.')
+        }
+
+        // ✅ USAR LÓGICA DE PROTEÇÃO
+        const operation = this.determineOperation()
+        console.log(`💾 Operação final: ${operation}`)
+
+        let savedRoute = null
+
+        // Tentar usar RouteMapStep manager primeiro
+        if (this.$refs.mapStep && this.$refs.mapStep.saveRouteData) {
+          try {
+            console.log(`Tentando ${operation} via RouteMapStep manager...`)
+
+            // Atualizar informações da rota no manager
+            await this.$refs.mapStep.updateRouteInfo(this.routeInfo)
+
+            if (operation === 'UPDATE') {
+              // Garantir que manager tem o ID correto
+              this.$refs.mapStep.routeId = this.routeId
+            }
+
+            // Salvar via manager (ele vai decidir create vs update internamente)
+            savedRoute = await this.$refs.mapStep.saveRouteData()
+
+            if (savedRoute && savedRoute.id) {
+              console.log(`✅ ${operation} via manager bem-sucedido:`, savedRoute.id)
+
+              // ✅ ATUALIZAR ID SE FOI CREATE
+              if (operation === 'CREATE') {
+                this.updateRouteId(savedRoute.id)
+              }
+            } else {
+              throw new Error('Manager retornou dados inválidos')
+            }
+
+          } catch (managerError) {
+            console.warn(`❌ Erro no ${operation} via manager:`, managerError.message)
+            savedRoute = null
+          }
+        }
+
+        // Fallback para API direta
+        if (!savedRoute) {
+          console.log(`Manager falhou, usando API direta para ${operation}...`)
+          savedRoute = await this.saveOrCreate()
+        }
+
+        // Validar resultado
+        if (!savedRoute || !savedRoute.id) {
+          throw new Error('Falha ao salvar: dados inválidos retornados')
+        }
+
+        // ✅ GARANTIR QUE ID ESTÁ SINCRONIZADO
+        if (operation === 'CREATE' || !this.routeId) {
+          this.updateRouteId(savedRoute.id)
+        }
+
+        // Notificação de sucesso
+        const successMessage = operation === 'UPDATE'
+          ? 'Itinerário atualizado com sucesso!'
+          : 'Itinerário criado com sucesso!'
+
+        this.quasar.notify({
+          type: 'positive',
+          message: successMessage
+        })
+
+        // Redirecionamento
+        console.log('Redirecionando após salvamento...')
+        this.router.push(`/routes/${savedRoute.id}`)
+
+      } catch (error) {
+        console.error('❌ Erro ao salvar rota:', error)
+        this.handleSaveError(error)
+      } finally {
+        this.isSaving = false
+      }
+    },
+
+    async saveOrCreate() {
+      const operation = this.determineOperation()
+
+      console.log(`💾 saveOrCreate - Operação: ${operation}`)
+
+      if (operation === 'CREATE') {
+        return await this.forceCreateNewRoute()
+      } else {
+        // UPDATE
+        const routeData = this.prepareRouteDataForAPI()
+        return await this.apiSaveRoute(routeData)
+      }
+    },
+
+
 
     // ===========================================
     // MÉTODOS UTILITÁRIOS
     // ===========================================
-
-    // Método para forçar recálculo se necessário
     async forceRecalculation() {
       if (this.$refs.mapStep && this.$refs.mapStep.calculateRoute) {
         try {
@@ -730,7 +1146,6 @@ export default defineComponent({
       }
     },
 
-    // Método para obter estado atual completo
     getCurrentState() {
       return {
         step: this.step,
@@ -743,6 +1158,624 @@ export default defineComponent({
         isEditing: this.isEditing
       }
     },
+
+    // Adicionar ao RouteCreationPage.vue na seção methods
+
+// ===========================================
+// MÉTODOS DE API CENTRALIZADOS
+// ===========================================
+
+    async apiLoadRoute(routeId) {
+      console.log('API: Carregando rota:', routeId)
+
+      try {
+        const response = await routeApiService.getRoute(routeId)
+        const routeData = response.data.route
+
+        // Validar dados recebidos
+        if (!routeData || !routeData.id) {
+          throw new Error('Dados da rota inválidos')
+        }
+
+        console.log('API: Rota carregada com sucesso:', routeData.id)
+
+        // ✅ NOVO: Notificar MapStep sobre dados carregados
+        this.notifyMapStepRouteLoaded(routeData)
+
+        return routeData
+
+      } catch (error) {
+        console.error('API: Erro ao carregar rota:', error)
+
+        this.quasar.notify({
+          type: 'negative',
+          message: `Erro ao carregar rota: ${error.response?.data?.message || error.message}`
+        })
+
+        throw error
+      }
+    },
+
+    async apiSaveRoute(routeData) {
+      console.log('API: Salvando rota:', routeData)
+
+      try {
+        // Validar dados antes do envio
+        const validation = this.validateRouteDataForAPI(routeData)
+        if (!validation.valid) {
+          throw new Error(`Validação falhou: ${validation.errors.join(', ')}`)
+        }
+
+        const response = await routeApiService.updateRoute(this.routeId, routeData)
+        const savedRoute = response.data.route || response.data
+
+        console.log('API: Rota salva com sucesso:', savedRoute.id)
+
+        this.quasar.notify({
+          type: 'positive',
+          message: 'Rota salva com sucesso'
+        })
+
+        return savedRoute
+
+      } catch (error) {
+        console.error('API: Erro ao salvar rota:', error)
+
+        this.quasar.notify({
+          type: 'negative',
+          message: `Erro ao salvar rota: ${error.response?.data?.message || error.message}`
+        })
+
+        throw error
+      }
+    },
+
+    async apiCreateRoute(routeData) {
+      console.log('API: Criando nova rota:', routeData)
+
+      try {
+        // Validar dados antes do envio
+        const validation = this.validateRouteDataForAPI(routeData)
+        if (!validation.valid) {
+          throw new Error(`Validação falhou: ${validation.errors.join(', ')}`)
+        }
+
+        const response = await routeApiService.createRoute(routeData)
+        const newRoute = response.data.route || response.data
+
+        console.log('API: Rota criada com sucesso:', newRoute.id)
+
+        // Atualizar routeId local
+        this.routeId = newRoute.id
+
+        this.quasar.notify({
+          type: 'positive',
+          message: `Rota "${newRoute.name}" criada com sucesso`
+        })
+
+        return newRoute
+
+      } catch (error) {
+        console.error('API: Erro ao criar rota:', error)
+
+        this.quasar.notify({
+          type: 'negative',
+          message: `Erro ao criar rota: ${error.response?.data?.message || error.message}`
+        })
+
+        throw error
+      }
+    },
+
+    async apiCalculateRoute(routeId, points) {
+      console.log('API: Calculando rota:', routeId, 'com', points?.length, 'pontos')
+
+      try {
+        // Validar pontos antes do cálculo
+        if (!points || points.length < 2) {
+          throw new Error('Pelo menos 2 pontos são necessários para calcular a rota')
+        }
+
+        // ✅ CORREÇÃO: Verificar se routeId é válido
+        let targetRouteId = routeId
+
+        // Se routeId é inválido, criar rota primeiro
+        if (!targetRouteId || targetRouteId === 'undefined' || isNaN(targetRouteId)) {
+          console.log('RouteId inválido, criando nova rota primeiro...')
+          const routeData = this.prepareRouteDataForAPI()
+          const newRoute = await this.apiCreateRoute(routeData)
+          targetRouteId = newRoute.id
+
+          // Atualizar routeId local
+          this.routeId = targetRouteId
+        }
+
+        console.log('Usando routeId:', targetRouteId)
+
+        // Iniciar o cálculo
+        const response = await routeApiService.calculateRoute(targetRouteId)
+        console.log('API: Cálculo iniciado:', response.data)
+
+        // Se o status é 'calculating', iniciar polling
+        if (response.data.status === 'calculating') {
+          return await this.apiPollCalculationStatus(targetRouteId)
+        } else if (response.data.status === 'completed') {
+          // Buscar dados completos da rota
+          return await this.apiLoadRoute(targetRouteId)
+        } else {
+          throw new Error(`Status de cálculo inesperado: ${response.data.status}`)
+        }
+
+      } catch (error) {
+        console.error('API: Erro ao calcular rota:', error)
+
+        this.quasar.notify({
+          type: 'negative',
+          message: `Erro ao calcular rota: ${error.response?.data?.message || error.message}`
+        })
+
+        throw error
+      }
+    },
+
+
+    debugCommunication() {
+      console.group('🔄 Debug Comunicação Parent-Child')
+
+      console.log('📤 Métodos disponíveis no MapStep:', {
+        mapStepRef: !!this.$refs.mapStep,
+        hasCalculateRoute: !!(this.$refs.mapStep?.calculateRoute),
+        hasSaveRouteData: !!(this.$refs.mapStep?.saveRouteData),
+        hasOnRouteLoadedFromPage: !!(this.$refs.mapStep?.onRouteLoadedFromPage),
+        hasOnCalculationProgressFromPage: !!(this.$refs.mapStep?.onCalculationProgressFromPage)
+      })
+
+      console.log('📊 Estado das requisições:', this.getManagerRequestsStatus())
+
+      console.log('📋 Estado atual:', {
+        step: this.step,
+        routeId: this.routeId,
+        pointsCount: this.routePoints.length,
+        hasSegments: this.routeDraw.length > 0
+      })
+
+      console.groupEnd()
+    },
+
+    async apiPollCalculationStatus(routeId, maxAttempts = 150) {
+      console.log('API: Iniciando polling do cálculo:', routeId)
+
+      let attempts = 0
+      let consecutiveErrors = 0
+      const maxConsecutiveErrors = 3
+
+      while (attempts < maxAttempts) {
+        try {
+          await new Promise(resolve => setTimeout(resolve, 2000)) // 2s de intervalo
+
+          const response = await routeApiService.getCalculationStatus(routeId)
+          const status = response.data.status || response.data
+
+          console.log(`API: Polling ${attempts + 1}/${maxAttempts} - Status:`, status.status)
+
+          // ✅ NOVO: Notificar MapStep sobre progresso
+          this.notifyMapStepCalculationProgress(status)
+
+          // Verificar se terminou
+          if (status.status === 'completed') {
+            console.log('API: Cálculo concluído!')
+            return await this.apiLoadRoute(routeId)
+          } else if (status.status === 'error' || status.status === 'failed') {
+            throw new Error(status.error_message || 'Cálculo falhou')
+          }
+
+          consecutiveErrors = 0
+          attempts++
+
+        } catch (error) {
+          consecutiveErrors++
+          console.error(`API: Erro no polling ${attempts + 1}:`, error.message)
+
+          if (consecutiveErrors >= maxConsecutiveErrors) {
+            throw new Error(`Muitos erros consecutivos no polling: ${error.message}`)
+          }
+
+          attempts++
+        }
+      }
+
+      throw new Error('Timeout no cálculo da rota')
+    },
+
+
+    async apiDeleteRoute(routeId) {
+      console.log('API: Deletando rota:', routeId)
+
+      try {
+        await routeApiService.deleteRoute(routeId)
+
+        console.log('API: Rota deletada com sucesso')
+
+        this.quasar.notify({
+          type: 'positive',
+          message: 'Rota deletada com sucesso'
+        })
+
+        return true
+
+      } catch (error) {
+        console.error('API: Erro ao deletar rota:', error)
+
+        this.quasar.notify({
+          type: 'negative',
+          message: `Erro ao deletar rota: ${error.response?.data?.message || error.message}`
+        })
+
+        throw error
+      }
+    },
+
+// ===========================================
+// MÉTODOS DE VALIDAÇÃO CENTRALIZADOS
+// ===========================================
+
+    validateRouteDataForAPI(routeData) {
+      const errors = []
+
+      // Validar campos obrigatórios
+      if (!routeData.name?.trim()) {
+        errors.push('Nome da rota é obrigatório')
+      }
+
+      if (!routeData.institution_id) {
+        errors.push('ID da instituição é obrigatório')
+      }
+
+      // Validar pontos
+      if (!routeData.points || !Array.isArray(routeData.points) || routeData.points.length < 2) {
+        errors.push('Pelo menos 2 pontos são obrigatórios')
+      }
+
+      // Validar coordenadas dos pontos
+      routeData.points?.forEach((point, index) => {
+        if (!this.isValidCoordinate(point.latitude, point.longitude)) {
+          errors.push(`Ponto ${index + 1} tem coordenadas inválidas`)
+        }
+      })
+
+      // Validar schedule_data
+      if (!routeData.schedule_data || typeof routeData.schedule_data !== 'object') {
+        errors.push('Dados de agendamento são obrigatórios')
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors
+      }
+    },
+
+    isValidCoordinate(lat, lng) {
+      return (
+        typeof lat === 'number' &&
+        typeof lng === 'number' &&
+        !isNaN(lat) &&
+        !isNaN(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      )
+    },
+
+// ===========================================
+// MÉTODOS DE COMUNICAÇÃO COM MANAGERS
+// ===========================================
+
+    emitCalculationProgress(status) {
+      // Notificar RouteMapStep sobre o progresso
+      if (this.$refs.mapStep) {
+        this.$refs.mapStep.onCalculationProgressFromPage?.(status)
+      }
+    },
+
+    async requestDataManagerAction(action, ...args) {
+      console.log('Solicitando ação do DataManager:', action, args)
+
+      switch (action) {
+        case 'loadRoute':
+          const [routeId] = args
+          const loadedRoute = await this.apiLoadRoute(routeId)
+
+          // Atualizar estado local
+          this.loadRouteForEditing(loadedRoute)
+
+          // Notificar managers
+          if (this.$refs.mapStep) {
+            this.$refs.mapStep.onRouteLoadedFromPage?.(loadedRoute)
+          }
+
+          return loadedRoute
+
+        case 'saveRoute':
+          const [routeData] = args
+          return await this.apiSaveRoute(routeData)
+
+        case 'createRoute':
+          const [newRouteData] = args
+          return await this.apiCreateRoute(newRouteData)
+
+        case 'deleteRoute':
+          const [deleteRouteId] = args
+          return await this.apiDeleteRoute(deleteRouteId)
+
+        default:
+          throw new Error(`Ação desconhecida: ${action}`)
+      }
+    },
+
+    async requestCalculationManagerAction(action, ...args) {
+      console.log('Solicitando ação do CalculationManager:', action, args)
+
+      switch (action) {
+        case 'calculateRoute':
+          const routeData = this.prepareRouteDataForAPI()
+          return await this.apiCalculateRoute(this.routeId, routeData.points)
+
+        case 'cancelCalculation':
+          // Para cancelamento, não precisamos de API - só parar o polling
+          console.log('Cancelando cálculo...')
+          this.isCancelling = true
+          return true
+
+        default:
+          throw new Error(`Ação desconhecida: ${action}`)
+      }
+    },
+    async handleManagerRequest(managerType, action, ...args) {
+      const requestId = ++this.requestIdCounter
+      console.log(`[${requestId}] Requisição de ${managerType}:`, action, args)
+
+      try {
+        // Adicionar à lista de requisições pendentes
+        this.pendingRequests.set(requestId, { managerType, action, startTime: Date.now() })
+
+        let result = null
+
+        switch (managerType) {
+          case 'data':
+            result = await this.handleDataManagerRequest(action, ...args)
+            break
+
+          case 'calculation':
+            result = await this.handleCalculationManagerRequest(action, ...args)
+            break
+
+          case 'points':
+            result = await this.handlePointsManagerRequest(action, ...args)
+            break
+
+          case 'notification':
+            result = await this.handleNotificationManagerRequest(action, ...args)
+            break
+
+          default:
+            throw new Error(`Manager desconhecido: ${managerType}`)
+        }
+
+        console.log(`[${requestId}] Sucesso:`, result)
+        return result
+
+      } catch (error) {
+        console.error(`[${requestId}] Erro:`, error)
+        throw error
+      } finally {
+        // Remover da lista de pendentes
+        this.pendingRequests.delete(requestId)
+      }
+    },
+
+    async handleDataManagerRequest(action, ...args) {
+      console.log('Processando requisição do DataManager:', action, args)
+
+      switch (action) {
+        case 'loadRoute':
+          const [routeId] = args
+          if (!this.validateRouteId(routeId)) {
+            throw new Error('ID de rota inválido para carregamento')
+          }
+          return await this.apiLoadRoute(routeId)
+
+        case 'saveRoute':
+          const [routeData] = args
+
+          // ✅ LÓGICA DE PROTEÇÃO
+          const operation = this.determineOperation()
+          console.log(`💾 Salvamento - Operação: ${operation}`)
+
+          if (operation === 'CREATE') {
+            // Criar nova rota
+            console.log('🆕 Criando nova rota...')
+            const saveData = {
+              ...this.prepareRouteDataForAPI(),
+              ...routeData
+            }
+            const newRoute = await this.apiCreateRoute(saveData)
+
+            this.updateRouteId(newRoute.id)
+            console.log('✅ Nova rota criada e ID atualizado:', this.routeId)
+
+            return newRoute
+          } else {
+            // Atualizar rota existente
+            console.log('📝 Atualizando rota existente:', this.routeId)
+            const saveData = {
+              ...this.prepareRouteDataForAPI(),
+              ...routeData
+            }
+            return await this.apiSaveRoute(saveData)
+          }
+
+        case 'createRoute':
+          // ✅ SEMPRE CRIAR NOVA
+          const [newRouteData] = args
+          const createData = {
+            ...this.prepareRouteDataForAPI(),
+            ...newRouteData
+          }
+          const route = await this.apiCreateRoute(createData)
+
+          this.updateRouteId(route.id)
+          return route
+
+        case 'deleteRoute':
+          const [deleteRouteId] = args
+          if (!this.validateRouteId(deleteRouteId)) {
+            throw new Error('ID de rota inválido para exclusão')
+          }
+          const result = await this.apiDeleteRoute(deleteRouteId)
+
+          // ✅ LIMPAR routeId após deletar
+          this.updateRouteId(null)
+
+          return result
+
+        default:
+          throw new Error(`Ação do DataManager desconhecida: ${action}`)
+      }
+    },
+
+    updateRouteId(newId) {
+      const oldId = this.routeId
+
+      // Validar novo ID
+      if (newId !== null && !this.validateRouteId(newId)) {
+        console.warn('⚠️ Tentativa de definir routeId inválido:', newId)
+        return false
+      }
+
+      // Atualizar ID
+      this.routeId = newId ? parseInt(newId) : null
+
+      console.log(`🔄 RouteId atualizado: ${oldId} → ${this.routeId}`)
+
+      // Sincronizar com URL se necessário (sem redirecionar)
+      if (this.routeId && this.route.params.id !== this.routeId.toString()) {
+        // Atualizar URL sem navegar
+        window.history.replaceState(
+          {},
+          '',
+          `/routes/${this.routeId}/edit`
+        )
+      }
+
+      // Emitir evento para componentes filhos
+      this.$emit('route-id-changed', this.routeId)
+
+      return true
+    },
+
+
+    async handleCalculationManagerRequest(action, ...args) {
+      console.log('Processando requisição do CalculationManager:', action, args)
+
+      switch (action) {
+        case 'calculateRoute':
+          // ✅ LÓGICA DE PROTEÇÃO
+          const operation = this.determineOperation()
+          console.log(`🔄 Operação determinada: ${operation}`)
+
+          if (operation === 'CREATE') {
+            // Criar nova rota primeiro
+            console.log('🆕 Criando nova rota antes do cálculo...')
+            const routeData = this.prepareRouteDataForAPI()
+            const newRoute = await this.apiCreateRoute(routeData)
+
+            // ✅ ATUALIZAR routeId e sincronizar estado
+            this.updateRouteId(newRoute.id)
+            console.log('✅ Nova rota criada com ID:', this.routeId)
+
+            // Agora calcular usando o novo ID
+            return await this.apiCalculateRoute(this.routeId, routeData.points)
+          } else {
+            // UPDATE - atualizar pontos e calcular
+            console.log('📝 Atualizando rota existente:', this.routeId)
+
+            // Primeiro salvar mudanças nos pontos
+            const routeData = this.prepareRouteDataForAPI()
+            await this.apiSaveRoute(routeData)
+
+            // Depois calcular
+            return await this.apiCalculateRoute(this.routeId, routeData.points)
+          }
+
+        case 'createRoute':
+          // ✅ SEMPRE CRIAR NOVA E ATUALIZAR ID
+          const [createData] = args
+          const newRouteData = {
+            ...this.prepareRouteDataForAPI(),
+            ...createData
+          }
+          const createdRoute = await this.apiCreateRoute(newRouteData)
+
+          this.updateRouteId(createdRoute.id)
+          return createdRoute
+
+        case 'cancelCalculation':
+          console.log('Cancelando cálculo...')
+          this.isCancelling = true
+          return true
+
+        default:
+          throw new Error(`Ação do CalculationManager desconhecida: ${action}`)
+      }
+    },
+
+
+    async handlePointsManagerRequest(action, ...args) {
+      console.log('Processando requisição do PointsManager:', action, args)
+
+      // PointsManager gerencia apenas estado local, não precisa de API
+      switch (action) {
+        case 'validatePoints':
+          // Validação local dos pontos
+          const validation = this.validateRouteDataForAPI({ points: this.routePoints })
+          return validation
+
+        default:
+          console.log('PointsManager não requer ações de API')
+          return true
+      }
+    },
+
+    async handleNotificationManagerRequest(action, ...args) {
+      console.log('Processando requisição do NotificationManager:', action, args)
+
+      // NotificationManager gerencia apenas notificações, não precisa de API
+      switch (action) {
+        case 'logError':
+          const [errorData] = args
+          console.error('Erro reportado pelo NotificationManager:', errorData)
+          return true
+
+        default:
+          console.log('NotificationManager não requer ações de API')
+          return true
+      }
+    },
+
+// 6. MÉTODO PARA CANCELAR REQUISIÇÕES PENDENTES
+    cancelPendingRequests() {
+      console.log('Cancelando requisições pendentes:', this.pendingRequests.size)
+
+      this.isCancelling = true
+      this.pendingRequests.clear()
+
+      // Resetar flag após um tempo
+      setTimeout(() => {
+        this.isCancelling = false
+      }, 1000)
+    },
+
   }
 })
 </script>

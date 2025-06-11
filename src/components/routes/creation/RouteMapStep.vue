@@ -2,15 +2,16 @@
   <div class="route-map-step">
     <!-- Gerenciadores invisíveis -->
     <RouteDataManager
-      ref="dataManager"
-      :route-id="routeId"
-      :readonly="false"
-      :auto-load="true"
-      @route-loaded="onRouteLoaded"
-      @route-updated="onRouteUpdated"
-      @points-updated="onPointsUpdated"
-      @segments-updated="onSegmentsUpdated"
-      @error="onDataError"
+        ref="dataManager"
+        :route-id="routeId"
+        :readonly="false"
+        :auto-load="true"
+        @route-loaded="onRouteLoaded"
+        @route-updated="onRouteUpdated"
+        @points-updated="onPointsUpdated"
+        @segments-updated="onSegmentsUpdated"
+        @request-action="handleManagerRequest"
+        @error="onDataError"
     />
 
     <RoutePointsManager
@@ -27,18 +28,19 @@
     />
 
     <RouteCalculationManager
-      ref="calculationManager"
-      :route-id="routeId"
-      :route-points="localRoutePoints"
-      :auto-calculate="false"
-      :institution-id="institutionId"
-      :route-name="routeName || 'Nova Rota'"
-      @calculation-started="onCalculationStarted"
-      @calculation-completed="onCalculationCompleted"
-      @calculation-failed="onCalculationFailed"
-      @route-created="onRouteCreated"
-      @route-updated="onCalculationRouteUpdated"
-      @error="onCalculationError"
+        ref="calculationManager"
+        :route-id="routeId"
+        :route-points="localRoutePoints"
+        :auto-calculate="false"
+        :institution-id="institutionId"
+        :route-name="routeName || 'Nova Rota'"
+        @calculation-started="onCalculationStarted"
+        @calculation-completed="onCalculationCompleted"
+        @calculation-failed="onCalculationFailed"
+        @route-created="onRouteCreated"
+        @route-updated="onCalculationRouteUpdated"
+        @request-action="handleManagerRequest"
+        @error="onCalculationError"
     />
 
     <RouteNotificationManager
@@ -311,7 +313,19 @@ export default defineComponent({
     SaveRouteAction
   },
 
-  emits: ['update:route-points', 'update:route-details', 'update:route-draw', 'next', 'back'],
+  emits: [
+    'update:route-points',
+    'update:route-details',
+    'update:route-draw',
+    'next',
+    'back',
+    'route-loaded',
+    'route-created',
+    'calculation-started',
+    'calculation-completed',
+    'calculation-failed',
+    'manager-request' // ✅ NOVO: Para requisições de managers
+  ],
 
   props: {
     routeId: {
@@ -452,29 +466,60 @@ export default defineComponent({
   },
 
   methods: {
-    // ===========================================
-    // EVENTOS DOS MANAGERS
-    // ===========================================
-    onRouteLoaded(routeData) {
-      console.log('Rota carregada pelo manager:', routeData)
-      this.routeData = routeData
 
-      if (routeData.points?.length > 0) {
-        this.localRoutePoints = [...routeData.points]
-        this.$emit('update:route-points', this.localRoutePoints)
-      }
+    async handleManagerRequest(request) {
+      console.log('RouteMapStep: Recebendo requisição de manager:', request)
 
-      if (routeData.segments?.length > 0) {
-        this.localRouteDraw = [...routeData.segments]
-        this.$emit('update:route-draw', this.localRouteDraw)
-      }
+      const { managerType, action, args, callback } = request
 
-      const updatedDetails = {
-        totalDistance: routeData.total_distance || 0,
-        totalDuration: routeData.total_duration || 0
+      try {
+        // ✅ NOVO: Emitir para o parent e aguardar resposta
+        const result = await this.emitManagerRequest(managerType, action, ...args)
+
+        console.log('RouteMapStep: Requisição processada com sucesso:', result)
+
+        // Chamar callback de sucesso
+        if (callback) {
+          callback(null, result)
+        }
+
+        return result
+
+      } catch (error) {
+        console.error('RouteMapStep: Erro ao processar requisição:', error)
+
+        // Chamar callback de erro
+        if (callback) {
+          callback(error, null)
+        }
+
+        throw error
       }
-      this.localRouteDetails = updatedDetails
-      this.$emit('update:route-details', updatedDetails)
+    },
+
+    async emitManagerRequest(managerType, action, ...args) {
+      return new Promise((resolve, reject) => {
+        // Timeout para evitar travamento
+        const timeout = setTimeout(() => {
+          reject(new Error(`Timeout na requisição: ${managerType}.${action}`))
+        }, 30000) // 30s timeout
+
+        // Emitir evento com callback
+        this.$emit('manager-request', {
+          managerType,
+          action,
+          args,
+          callback: (error, result) => {
+            clearTimeout(timeout)
+
+            if (error) {
+              reject(error)
+            } else {
+              resolve(result)
+            }
+          }
+        })
+      })
     },
 
     onRouteUpdated(routeData) {
@@ -558,8 +603,8 @@ export default defineComponent({
       console.log('Cálculo concluído pelo manager:', data)
 
       this.$refs.notificationManager?.showCalculationCompleted(
-        data.calculationTime,
-        data.routeData?.total_distance / 1000 || 0
+          data.calculationTime,
+          data.routeData?.total_distance / 1000 || 0
       )
 
       // Atualizar dados locais COM VALIDAÇÃO
@@ -588,27 +633,18 @@ export default defineComponent({
             console.log('Segmentos da rota atualizados:', newSegments.length)
           }
         }
-
-        // Emitir evento para TraceRouteAction saber que terminou
-        this.$emit('route-calculated', {
-          success: true,
-          totalDistance: updatedDetails.totalDistance,
-          totalDuration: updatedDetails.totalDuration,
-          segments: this.localRouteDraw
-        })
       }
-    },
 
+      // ✅ NOVO: Emitir para o parent
+      this.$emit('calculation-completed', data)
+    },
     onCalculationFailed(data) {
       console.log('Cálculo falhou:', data.error)
 
       this.$refs.notificationManager?.showCalculationError(data.error)
 
-      // Emitir evento para TraceRouteAction saber que falhou
-      this.$emit('route-calculation-failed', {
-        success: false,
-        error: data.error
-      })
+      // ✅ NOVO: Emitir para o parent
+      this.$emit('calculation-failed', data)
     },
 
     onRouteCreated(routeData) {
@@ -617,15 +653,12 @@ export default defineComponent({
       this.unsavedChanges = false
 
       this.$refs.notificationManager?.showRouteCreated(
-        routeData.name,
-        routeData.id
+          routeData.name,
+          routeData.id
       )
 
-      // *** NÃO REDIRECIONAR - Apenas emitir evento ***
+      // ✅ NOVO: Emitir para o parent em vez de redirecionar
       this.$emit('route-created', routeData)
-
-      // NÃO FAZER: this.$emit('route-id-changed', routeData.id)
-      // Isso evita redirecionamento automático
     },
 
     onCalculationRouteUpdated(routeData) {
@@ -691,25 +724,21 @@ export default defineComponent({
       }
 
       try {
-        console.log('Iniciando cálculo via CalculationManager...')
+        console.log('Iniciando cálculo via emit...')
 
-        // Usar o RouteCalculationManager
-        if (this.$refs.calculationManager) {
-          const result = await this.$refs.calculationManager.calculateRoute()
-          console.log('Cálculo concluído via manager:', result)
-          return result
-        } else {
-          throw new Error('CalculationManager não disponível')
-        }
+        // ✅ NOVO: Usar emit em vez de this.$parent
+        const result = await this.emitManagerRequest('calculation', 'calculateRoute')
+        console.log('Cálculo concluído via emit:', result)
+        return result
+
       } catch (error) {
-        console.error('Erro ao calcular rota via manager:', error)
+        console.error('Erro ao calcular rota via emit:', error)
 
-        // Fallback: notificar erro via NotificationManager
+        // Notificar erro via NotificationManager
         this.$refs.notificationManager?.showCalculationError(error)
         throw error
       }
     },
-
     // ===========================================
     // MÉTODOS DE MANIPULAÇÃO DE PONTOS
     // ===========================================
@@ -861,38 +890,108 @@ export default defineComponent({
     // Método para salvar dados da rota (exposto para o parent)
     async saveRouteData() {
       try {
-        if (this.$refs.dataManager) {
-          return await this.$refs.dataManager.saveRouteData(this.routeId)
+        console.log('Salvando rota via emit...')
+
+        // Preparar dados da rota
+        const routeData = {
+          name: this.routeData?.name || this.routeName,
+          points: this.localRoutePoints
         }
-        throw new Error('DataManager não disponível')
+
+        // ✅ NOVO: Usar emit em vez de this.$parent
+        const result = await this.emitManagerRequest('data', 'saveRoute', routeData)
+        console.log('Rota salva via emit:', result)
+        return result
+
       } catch (error) {
-        console.error('Erro ao salvar via manager:', error)
+        console.error('Erro ao salvar via emit:', error)
         throw error
+      }
+    },
+
+    async calculateRoute() {
+      return await this.calculateRouteFromMap()
+    },
+
+    getCurrentPoints() {
+      return this.localRoutePoints
+    },
+
+    getCurrentSegments() {
+      return this.localRouteDraw
+    },
+
+    getCurrentDetails() {
+      return this.localRouteDetails
+    },
+
+    onRouteLoadedFromPage(routeData) {
+      console.log('RouteMapStep: Recebendo rota carregada do parent:', routeData.id)
+
+      // Propagar para o DataManager
+      if (this.$refs.dataManager) {
+        this.$refs.dataManager.onRouteLoadedFromPage?.(routeData)
+      }
+
+      // Atualizar estado local
+      this.routeData = routeData
+
+      if (routeData.points?.length > 0) {
+        this.localRoutePoints = [...routeData.points]
+        this.$emit('update:route-points', this.localRoutePoints)
+      }
+
+      if (routeData.segments?.length > 0) {
+        this.localRouteDraw = [...routeData.segments]
+        this.$emit('update:route-draw', this.localRouteDraw)
+      }
+
+      const updatedDetails = {
+        totalDistance: routeData.total_distance || 0,
+        totalDuration: routeData.total_duration || 0
+      }
+      this.localRouteDetails = updatedDetails
+      this.$emit('update:route-details', updatedDetails)
+    },
+
+    onCalculationProgressFromPage(status) {
+      console.log('RouteMapStep: Recebendo progresso de cálculo do parent:', status)
+
+      // Propagar para o CalculationManager
+      if (this.$refs.calculationManager) {
+        this.$refs.calculationManager.onCalculationProgressFromPage?.(status)
       }
     },
 
     // Método para atualizar informações da rota
     async updateRouteInfo(routeInfo) {
+      console.log('Atualizando informações da rota:', routeInfo)
+
       if (this.routeData) {
         const updatedData = {
           ...this.routeData,
           name: routeInfo.name,
           description: routeInfo.description,
-          schedule_data: {
+          schedule_data: routeInfo.schedule_data || {
             start_time: routeInfo.startTime,
             end_time: routeInfo.endTime,
             days: this.convertDaysToArray(routeInfo.days)
           },
-          permissions: (routeInfo.allowedCards || []).map(card =>
-            typeof card === 'string' ? card : card.value
-          )
+          permissions: (routeInfo.allowedPermissions || []),
+          is_public: routeInfo.isPublic,
+          access_type: routeInfo.accessType
         }
 
+        // Atualizar no DataManager local
         if (this.$refs.dataManager) {
           this.$refs.dataManager.setRouteData(updatedData)
         }
+
+        // Atualizar estado local
+        this.routeData = updatedData
       }
     },
+
 
     convertDaysToArray(days) {
       const result = []
@@ -906,18 +1005,6 @@ export default defineComponent({
       return result.length > 0 ? result : [1, 2, 3, 4, 5]
     },
 
-    // Método para calcular rota (exposto para o parent)
-    async calculateRoute() {
-      try {
-        if (this.$refs.calculationManager) {
-          return await this.$refs.calculationManager.calculateRoute()
-        }
-        throw new Error('CalculationManager não disponível')
-      } catch (error) {
-        console.error('Erro ao calcular via manager:', error)
-        throw error
-      }
-    },
 
     // Método para obter estado atual dos managers
     getManagersState() {
